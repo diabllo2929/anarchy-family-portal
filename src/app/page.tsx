@@ -525,87 +525,106 @@ export default function AnarchyPortal() {
     const cleanDb = (Array.isArray(dbList) ? dbList : []).filter(
       (m: any) => !(m.email && String(m.email).toLowerCase().endsWith("@gmail.com") && !m.discord_id)
     );
+    let liveList: any[] = [];
     try {
       const res = await fetch("/api/discord-gang-members", { cache: "no-store" });
       if (res.ok) {
         const payload = await res.json();
-        const liveList: any[] = Array.isArray(payload.members) ? payload.members : [];
-        if (liveList.length > 0) {
-          const merged: any[] = [];
-          const usedDbIds = new Set<any>();
-
-          for (const dm of liveList) {
-            const match = cleanDb.find(
-              (m: any) =>
-                (dm.discord_id && m.discord_id === dm.discord_id) ||
-                (dm.discord_username &&
-                  m.discord_username &&
-                  String(m.discord_username).toLowerCase() === String(dm.discord_username).toLowerCase())
-            );
-            if (match) {
-              usedDbIds.add(match.id);
-              const existingRoles = Array.isArray(match.roles_list)
-                ? match.roles_list.filter((r: string) => r !== "Dev" && r !== "Gang" && r !== "زائر")
-                : [];
-              const finalRoles = [
-                ...(dm.isDev ? ["Dev"] : []),
-                ...(dm.isGang && !dm.isDev ? ["Gang"] : []),
-                ...existingRoles,
-              ];
-              merged.push({
-                ...match,
-                ic_name: dm.ic_name,
-                discord_username: dm.discord_username,
-                discord_id: dm.discord_id,
-                avatar_url: dm.avatar_url,
-                roles_list: finalRoles.length > 0 ? finalRoles : dm.roles_list,
-                rank_name: dm.isDev ? "Dev" : (finalRoles[0] || "Gang"),
-                rank_order: dm.isDev ? 3 : Math.min(Number(match.rank_order || 6), 6),
-                role: dm.isDev ? "admin" : match.role || "member",
-              });
-            } else {
-              merged.push({
-                id: `discord-${dm.discord_id}`,
-                email: `${dm.discord_id}@anarchy.discord`,
-                ic_name: dm.ic_name,
-                discord_username: dm.discord_username,
-                discord_id: dm.discord_id,
-                avatar_url: dm.avatar_url,
-                roles_list: dm.roles_list,
-                rank_name: dm.rank_name,
-                rank_order: dm.rank_order,
-                role: dm.role,
-                points: 0,
-                tasks_completed_count: 0,
-              });
-            }
-          }
-
-          for (const rem of cleanDb) {
-            if (!usedDbIds.has(rem.id) && rem.discord_id) {
-              merged.push(rem);
-            }
-          }
-
-          merged.sort((a: any, b: any) => Number(a.rank_order || 99) - Number(b.rank_order || 99));
-          applyLiveDiscordMembers(merged);
-          setCurrentMember((prev: any) => {
-            if (!prev) return prev;
-            const updatedSelf = merged.find(
-              (m: any) =>
-                (prev.discord_id && m.discord_id === prev.discord_id) ||
-                (prev.discord_username &&
-                  m.discord_username &&
-                  String(m.discord_username).toLowerCase() === String(prev.discord_username).toLowerCase())
-            );
-            return updatedSelf || prev;
-          });
-          return;
-        }
+        if (Array.isArray(payload.members)) liveList = payload.members;
       }
     } catch {}
-    applyLiveDiscordMembers(cleanDb);
+
+    setMembers((prevMembers: Member[]) => {
+      const merged: any[] = [];
+      const usedDbIds = new Set<any>();
+
+      for (const dm of liveList) {
+        const match = cleanDb.find(
+          (m: any) =>
+            (dm.discord_id && m.discord_id === dm.discord_id) ||
+            (dm.discord_username &&
+              m.discord_username &&
+              String(m.discord_username).toLowerCase() === String(dm.discord_username).toLowerCase())
+        );
+        if (match) {
+          usedDbIds.add(match.id);
+          const existingRoles = Array.isArray(match.roles_list)
+            ? match.roles_list.filter((r: string) => r !== "Dev" && r !== "Gang" && r !== "زائر")
+            : [];
+          const finalRoles = [
+            ...(dm.isDev ? ["Dev"] : []),
+            ...(dm.isGang && !dm.isDev ? ["Gang"] : []),
+            ...existingRoles,
+          ];
+          merged.push({
+            ...match,
+            ic_name: dm.ic_name,
+            discord_username: dm.discord_username,
+            discord_id: dm.discord_id,
+            avatar_url: dm.avatar_url,
+            roles_list: finalRoles.length > 0 ? finalRoles : dm.roles_list,
+            rank_name: dm.isDev ? "Dev" : (finalRoles[0] || "Gang"),
+            rank_order: dm.isDev ? 3 : Math.min(Number(match.rank_order || 6), 6),
+            role: dm.isDev ? "admin" : match.role || "member",
+          });
+        } else {
+          merged.push({
+            id: `discord-${dm.discord_id}`,
+            email: `${dm.discord_id}@anarchy.discord`,
+            ic_name: dm.ic_name,
+            discord_username: dm.discord_username,
+            discord_id: dm.discord_id,
+            avatar_url: dm.avatar_url,
+            roles_list: dm.roles_list,
+            rank_name: dm.rank_name,
+            rank_order: dm.rank_order,
+            role: dm.role,
+            points: 0,
+            tasks_completed_count: 0,
+          });
+        }
+      }
+
+      for (const rem of cleanDb) {
+        if (!usedDbIds.has(rem.id) && rem.discord_id) {
+          merged.push(rem);
+        }
+      }
+
+      // الحفاظ على أي عضو حي مضاف من الجلسة الحالية حتى لا يختفي أبداً
+      for (const existingItem of prevMembers) {
+        const alreadyIn = merged.some(
+          (m: any) =>
+            m.id === existingItem.id ||
+            (existingItem.discord_id && m.discord_id === existingItem.discord_id)
+        );
+        if (!alreadyIn && existingItem.discord_id) {
+          merged.push(existingItem);
+        }
+      }
+
+      merged.sort((a: any, b: any) => Number(a.rank_order || 99) - Number(b.rank_order || 99));
+      return merged as Member[];
+    });
   };
+
+  useEffect(() => {
+    if (!currentMember) return;
+    if (!liveDiscordPerms.isDev && !liveDiscordPerms.isGang) return;
+    setMembers((prev: Member[]) => {
+      const idx = prev.findIndex(
+        (m: Member) =>
+          m.id === currentMember.id ||
+          (currentMember.discord_id && m.discord_id === currentMember.discord_id)
+      );
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...currentMember };
+        return copy;
+      }
+      return [currentMember, ...prev];
+    });
+  }, [currentMember, liveDiscordPerms.isDev, liveDiscordPerms.isGang]);
   const [warns, setWarns] = useState<MemberWarn[]>([]);
   const [settingsMap, setSettingsMap] = useState<Record<string, FamilySetting>>({});
   const [tasks, setTasks] = useState<WeeklyTask[]>([]);

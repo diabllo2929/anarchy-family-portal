@@ -654,8 +654,7 @@ export default function AnarchyPortal() {
   const isOwnerEmail = ["ysaid558855@gmail.com", "ysaid20006000@gmail.com"].includes(
     currentUserEmail.toLowerCase()
   );
-  const isAdmin =
-    currentMemberRoles.some((r) => ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r));
+  const isAdmin = liveDiscordPerms.isDev;
 
   const isFamilyMember =
     isAdmin ||
@@ -2272,7 +2271,7 @@ export default function AnarchyPortal() {
               )}
               <div className="text-right leading-tight">
                 <span className="text-[11px] font-black text-white block max-w-[85px] truncate">
-                  {currentMember?.ic_name || currentUserEmail.split("@")[0]}
+                  {currentMember?.discord_username || currentMember?.ic_name || currentUserEmail.split("@")[0]}
                 </span>
                 <span className="text-[9px] font-black text-red-400 block max-w-[95px] truncate">
                   {currentMemberRoles.join(" • ")}
@@ -2355,7 +2354,7 @@ export default function AnarchyPortal() {
                 <div className="flex items-center gap-2.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
                   <span className="text-xs font-black text-white">
-                    {currentMember?.ic_name || currentUserEmail.split("@")[0]}
+                    {currentMember?.discord_username || currentMember?.ic_name || currentUserEmail.split("@")[0]}
                   </span>
                   <span className="text-[10px] font-black text-red-400 bg-red-500/15 px-2 py-0.5 rounded-md">
                     {currentMemberRoles.join(" • ")}

@@ -1876,7 +1876,7 @@ export default function AnarchyPortal() {
         ? editRole
         : "member";
 
-    const updatePayload = {
+    const updates = {
       rank_name: highestConfig.label,
       rank_order: highestConfig.order,
       roles_list: finalRoles,
@@ -1890,7 +1890,7 @@ export default function AnarchyPortal() {
 
     const { error } = await supabase
       .from("members")
-      .update(updatePayload)
+      .update(updates)
       .eq("id", editingMemberId);
 
     if (error) {

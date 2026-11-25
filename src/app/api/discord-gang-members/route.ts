@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
 const DEV_ROLE_ID = "1573355148556763319";
 const GANG_ROLE_ID = "1543700433099563099";
 

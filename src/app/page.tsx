@@ -719,7 +719,14 @@ export default function AnarchyPortal() {
       }
 
       setCurrentUserId(user.id);
-      setCurrentUserEmail(user.email || "");
+      const sessionDiscordUser =
+        user.user_metadata?.user_name ||
+        user.user_metadata?.preferred_username ||
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email ||
+        "";
+      setCurrentUserEmail(sessionDiscordUser);
 
       const nowIso = new Date().toISOString();
 

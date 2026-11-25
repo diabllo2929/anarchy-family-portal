@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!botToken || !supabaseUrl || !serviceKey) {
-      return NextResponse.json({ isDev: false, isGang: false, debug: "Missing env" });
+      return NextResponse.json({ isDev: false, isGang: false });
     }
 
     const headers = { Authorization: `Bot ${botToken}` };
@@ -126,14 +126,13 @@ export async function POST(req: Request) {
     const existing = (existingMembers || []).find(
       (m: any) =>
         (finalDiscordId && m.discord_id === finalDiscordId) ||
-        (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail) ||
         (finalDiscordUsername &&
           m.discord_username &&
-          m.discord_username.toLowerCase() === finalDiscordUsername.toLowerCase())
+          m.discord_username.toLowerCase() === finalDiscordUsername.toLowerCase()) ||
+        (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
     );
 
     let updatedMember = existing || null;
-    let dbError: any = null;
 
     if (existing) {
       const currentRoles: string[] = Array.isArray(existing.roles_list)
@@ -152,13 +151,16 @@ export async function POST(req: Request) {
         ...(finalDiscordId ? { discord_id: finalDiscordId } : {}),
         ...(finalDiscordUsername ? { discord_username: finalDiscordUsername } : {}),
         ...(finalAvatarUrl ? { avatar_url: finalAvatarUrl } : {}),
+        ...(finalDiscordUsername && (!existing.ic_name || existing.ic_name.includes("@"))
+          ? { ic_name: discordUserObj?.global_name || finalDiscordUsername }
+          : {}),
         roles_list: nextRoles,
         rank_name: nextRoles[0],
         rank_order: isDev ? 3 : isGang ? 6 : 99,
         role: isDev ? "admin" : "member",
       };
 
-      const { data: saved, error } = await supabase
+      const { data: saved } = await supabase
         .from("members")
         .update(patch)
         .eq("id", existing.id)
@@ -166,21 +168,21 @@ export async function POST(req: Request) {
         .single();
 
       if (saved) updatedMember = saved;
-      if (error) dbError = error.message;
     } else if (isGang || isDev) {
       const autoRoles = isDev ? ["Dev"] : ["Gang"];
-      const fallbackEmail =
-        cleanEmail || `${finalDiscordId || Date.now()}@anarchy.discord`;
+      const uniqueKeyEmail = finalDiscordId
+        ? `${finalDiscordId}@anarchy.discord`
+        : cleanEmail || `${Date.now()}@anarchy.discord`;
 
-      const { data: inserted, error } = await supabase
+      const { data: inserted } = await supabase
         .from("members")
         .upsert(
           {
-            email: fallbackEmail,
+            email: uniqueKeyEmail,
             ic_name:
               discordUserObj?.global_name ||
-              oauthName ||
               finalDiscordUsername ||
+              oauthName ||
               "Anarchy Member",
             discord_username: finalDiscordUsername || "Discord User",
             discord_id: finalDiscordId,
@@ -197,15 +199,15 @@ export async function POST(req: Request) {
         .single();
 
       if (inserted) updatedMember = inserted;
-      if (error) dbError = error.message;
     }
 
     return NextResponse.json({
       isDev,
       isGang,
       resolvedDiscordId: finalDiscordId,
+      discordUsername: finalDiscordUsername,
+      discordAvatar: finalAvatarUrl,
       member: updatedMember,
-      dbError,
     });
   } catch (err: any) {
     return NextResponse.json({ isDev: false, isGang: false, error: err.message });

@@ -42,6 +42,7 @@ export async function POST(req: Request) {
 
     let memberRoles: string[] = [];
     let discordUserObj: any = null;
+    let guildNick: string | null = null;
     let resolvedDiscordId = (discordId || "").trim();
 
     for (const gId of candidateGuildIds) {
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
           const mData = await mRes.json();
           memberRoles = mData.roles || [];
           discordUserObj = mData.user;
+          guildNick = mData.nick || null;
           if (memberRoles.includes(DEV_ROLE_ID) || memberRoles.includes(GANG_ROLE_ID)) {
             break;
           }
@@ -83,6 +85,7 @@ export async function POST(req: Request) {
           if (found) {
             memberRoles = found.roles || [];
             discordUserObj = found.user;
+            guildNick = found.nick || null;
             resolvedDiscordId = found.user.id;
             if (memberRoles.includes(DEV_ROLE_ID) || memberRoles.includes(GANG_ROLE_ID)) {
               break;
@@ -104,8 +107,15 @@ export async function POST(req: Request) {
     const isGang = isDev || memberRoles.includes(GANG_ROLE_ID);
 
     const finalDiscordId = discordUserObj?.id || resolvedDiscordId || null;
-    const finalDiscordUsername =
-      discordUserObj?.username || username || oauthName || null;
+    // اليوزر الأصلي مثل youssef06229
+    const pureUsername = discordUserObj?.username || username || null;
+    // الاسم المعروض مثل ZM | Youssef
+    const displayName =
+      guildNick ||
+      discordUserObj?.global_name ||
+      oauthName ||
+      pureUsername ||
+      "Anarchy Member";
 
     let finalAvatarUrl = oauthAvatar || null;
     if (discordUserObj?.id) {
@@ -120,15 +130,14 @@ export async function POST(req: Request) {
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const { data: existingMembers } = await supabase.from("members").select("*");
-
     const cleanEmail = email ? String(email).toLowerCase().trim() : "";
 
     const existing = (existingMembers || []).find(
       (m: any) =>
         (finalDiscordId && m.discord_id === finalDiscordId) ||
-        (finalDiscordUsername &&
+        (pureUsername &&
           m.discord_username &&
-          m.discord_username.toLowerCase() === finalDiscordUsername.toLowerCase()) ||
+          m.discord_username.toLowerCase() === pureUsername.toLowerCase()) ||
         (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
     );
 
@@ -149,11 +158,9 @@ export async function POST(req: Request) {
 
       const patch: any = {
         ...(finalDiscordId ? { discord_id: finalDiscordId } : {}),
-        ...(finalDiscordUsername ? { discord_username: finalDiscordUsername } : {}),
+        ...(pureUsername ? { discord_username: pureUsername } : {}),
+        ...(displayName ? { ic_name: displayName } : {}),
         ...(finalAvatarUrl ? { avatar_url: finalAvatarUrl } : {}),
-        ...(finalDiscordUsername && (!existing.ic_name || existing.ic_name.includes("@"))
-          ? { ic_name: discordUserObj?.global_name || finalDiscordUsername }
-          : {}),
         roles_list: nextRoles,
         rank_name: nextRoles[0],
         rank_order: isDev ? 3 : isGang ? 6 : 99,
@@ -179,12 +186,8 @@ export async function POST(req: Request) {
         .upsert(
           {
             email: uniqueKeyEmail,
-            ic_name:
-              discordUserObj?.global_name ||
-              finalDiscordUsername ||
-              oauthName ||
-              "Anarchy Member",
-            discord_username: finalDiscordUsername || "Discord User",
+            ic_name: displayName,
+            discord_username: pureUsername || displayName,
             discord_id: finalDiscordId,
             avatar_url: finalAvatarUrl,
             rank_name: autoRoles[0],
@@ -205,7 +208,8 @@ export async function POST(req: Request) {
       isDev,
       isGang,
       resolvedDiscordId: finalDiscordId,
-      discordUsername: finalDiscordUsername,
+      discordUsername: pureUsername,
+      displayName,
       discordAvatar: finalAvatarUrl,
       member: updatedMember,
     });

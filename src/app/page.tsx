@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, useCallback, MouseEvent, useMemo } from "react";
 import {
@@ -654,9 +654,6 @@ export default function AnarchyPortal() {
     currentUserEmail.toLowerCase()
   );
   const isAdmin =
-    isOwnerEmail ||
-    currentMember?.role === "admin" ||
-    currentMember?.role === "super_admin" ||
     currentMemberRoles.some((r) => ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r));
 
   const isFamilyMember =
@@ -1823,20 +1820,40 @@ export default function AnarchyPortal() {
         ? editRole
         : "member";
 
-    const updates = {
-      ic_name: editIcName,
+    const updatePayload = {
       rank_name: highestConfig.label,
       rank_order: highestConfig.order,
       roles_list: finalRoles,
-      role: computedSiteRole,
-      discord_username: editDiscordUser || null,
-      kick_or_twitch_url: editKickUrl || null,
-      youtube_url: editYoutubeUrl || null,
-      tiktok_url: editTiktokUrl || null,
-      points: Number(editPoints),
+      role:
+        finalRoles.includes("Dev") || finalRoles.includes("Boss")
+          ? "super_admin"
+          : hasAdminRole
+          ? "admin"
+          : "member",
     };
 
-    await supabase.from("members").update(updates).eq("id", memberId);
+    const { error } = await supabase
+      .from("members")
+      .update(updatePayload)
+      .eq("id", editingMemberId);
+
+    if (error) {
+      alert("خطأ في حفظ التعديلات: " + error.message);
+      return;
+    }
+
+    const targetMemberObj = members.find((item) => item.id === editingMemberId);
+    if (targetMemberObj?.discord_id) {
+      await fetch("/api/sync-discord-roles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "push",
+          discordId: targetMemberObj.discord_id,
+          rolesList: finalRoles,
+        }),
+      });
+    }
     setMembers(
       members
         .map((m) => (m.id === memberId ? ({ ...m, ...updates } as Member) : m))

@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body {
+    background-color: #050203;
+    color: #f5efe6;
+    overflow-x: hidden;
+  }
+}
+
+/* إخفاء أي scrollbar مزعج مع الحفاظ على التمرير */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.anarchy-glass {
+  background: linear-gradient(
+    145deg,
+    rgba(24, 8, 11, 0.86) 0%,
+    rgba(11, 4, 6, 0.92) 55%,
+    rgba(6, 2, 3, 0.96) 100%
+  );
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(245, 239, 230, 0.14);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.boss-glass {
+  background: linear-gradient(
+    145deg,
+    rgba(42, 22, 8, 0.88) 0%,
+    rgba(22, 7, 10, 0.94) 55%,
+    rgba(8, 3, 4, 0.98) 100%
+  );
+  backdrop-filter: blur(22px);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.9), 0 0 30px rgba(245, 158, 11, 0.12);
+}
+
+.btn-cream-ivory {
+  background: linear-gradient(180deg, #fffdf9 0%, #f5efe6 55%, #e3d5be 100%);
+  color: #120809;
+  box-shadow: 0 8px 24px rgba(245, 239, 230, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.btn-cream-crimson {
+  background: linear-gradient(180deg, #ef4444 0%, #b91c1c 60%, #7f1d1d 100%);
+  color: #fbf7f0;
+  border: 1px solid rgba(254, 202, 202, 0.28);
+  box-shadow: 0 8px 26px rgba(220, 38, 38, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.btn-cream-ghost {
+  background: rgba(245, 239, 230, 0.07);
+  color: #f5efe6;
+  border: 1px solid rgba(245, 239, 230, 0.16);
+}
+
+.btn-cream-ghost:hover {
+  background: rgba(245, 239, 230, 0.14);
+  border-color: rgba(245, 239, 230, 0.32);
+}
+
+@keyframes sheenMove {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  55%,
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+
+.animate-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+  animation: sheenMove 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.anarchy-cinematic-font {
+  font-family: var(--font-cinzel), var(--font-geist-sans), Georgia, serif;
+  letter-spacing: 0.08em;
+}
+
+.anarchy-cream-letter {
+  background: linear-gradient(180deg, #ffffff 0%, #f5efe6 58%, #d7c7b0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.92));
+}

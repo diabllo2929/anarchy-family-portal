@@ -1197,6 +1197,51 @@ export default function AnarchyPortal() {
     }
   };
 
+  const handleDeleteMember = async (member: Member) => {
+    if (
+      member.id === currentMember?.id ||
+      member.email.toLowerCase() === currentUserEmail.toLowerCase()
+    ) {
+      alert("لا يمكنك حذف حسابك الشخصي من البوابة.");
+      return;
+    }
+
+    const confirmed = confirm(
+      `هل أنت متأكد من حذف وطرد "${member.ic_name}" (${member.email}) نهائياً من الموقع؟\nسيتم مسح بياناته وتاسكاته وتحذيراته بالكامل.`
+    );
+    if (!confirmed) return;
+
+    await Promise.all([
+      supabase.from("member_warns").delete().eq("member_id", member.id),
+      supabase.from("task_submissions").delete().eq("member_id", member.id),
+    ]);
+
+    const { error } = await supabase.from("members").delete().eq("id", member.id);
+    if (error) {
+      alert("حدث خطأ أثناء حذف العضو: " + error.message);
+      return;
+    }
+
+    setMembers(members.filter((m) => m.id !== member.id));
+    setWarns(warns.filter((w) => w.member_id !== member.id));
+    setSubmissions(submissions.filter((s) => s.member_id !== member.id));
+    if (editingMemberId === member.id) setEditingMemberId(null);
+    if (warnMemberId === member.id) setWarnMemberId(null);
+    if (dossierMember?.id === member.id) setDossierMember(null);
+
+    await sendDiscordEvent({
+      title: "🗑️ طرد / حذف عضو من البوابة",
+      color: 0xef4444,
+      fields: [
+        { name: "العضو المحذوف", value: member.ic_name, inline: true },
+        { name: "الرتبة السابقة", value: member.rank_name || "عضو", inline: true },
+        { name: "الإيميل", value: member.email, inline: true },
+      ],
+    });
+
+    alert(`تم حذف "${member.ic_name}" من البوابة بنجاح.`);
+  };
+
   const handleAddWeaponLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLogMember.trim() || !newLogWeapon.trim()) return;
@@ -4237,6 +4282,20 @@ export default function AnarchyPortal() {
                                         ? "إغلاق"
                                         : "تعديل الرولات والروابط"}
                                     </button>
+
+                                    {m.id !== currentMember?.id &&
+                                      m.email.toLowerCase() !==
+                                        currentUserEmail.toLowerCase() && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteMember(m)}
+                                          title="حذف / طرد العضو من الموقع نهائياً"
+                                          className="px-3 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 border border-red-500/45 text-red-400 hover:text-red-300 text-xs font-black flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>حذف</span>
+                                        </button>
+                                      )}
                                   </div>
                                 </div>
 
@@ -4434,10 +4493,10 @@ export default function AnarchyPortal() {
                                   </span>
                                   <span className="text-zinc-300">({app.real_name_age})</span>
                                   <span className="text-red-400 font-bold">
-                                    • Discord: {app.discord_username}
+                                    - Discord: {app.discord_username}
                                   </span>
                                   <span className="text-amber-300 font-bold">
-                                    • {app.fivem_hours}
+                                    - {app.fivem_hours}
                                   </span>
                                 </div>
                                 <p className="text-[#f5efe6]">

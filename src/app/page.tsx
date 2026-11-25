@@ -766,6 +766,25 @@ export default function AnarchyPortal() {
             m.email.toLowerCase() === (user.email || "").toLowerCase()
         ) || null;
       setCurrentMember(me);
+      // auto-kick-unauthorized-tab
+      const freshRoles = me
+        ? Array.isArray((me as any).roles_list) && (me as any).roles_list.length > 0
+          ? (me as any).roles_list
+          : me.rank_name
+          ? [me.rank_name]
+          : ["زائر"]
+        : ["زائر"];
+      const stillAdmin = freshRoles.some((r: string) =>
+        ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r)
+      );
+      const stillFamily =
+        stillAdmin ||
+        freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
+      setActiveTab((prev) => {
+        if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
+        if (["tasks", "leaderboard"].includes(prev) && !stillFamily) return "home";
+        return prev;
+      });
       if (me?.discord_username && !appDiscord) {
         setAppDiscord(me.discord_username);
       }
@@ -1942,7 +1961,7 @@ export default function AnarchyPortal() {
 
   const visibleNavItems = navItems
     .filter((item) => {
-      if (item.adminOnly && !isAdmin && !isFamilyMember) return false;
+      if (item.adminOnly && !isAdmin) return false;
       if (item.familyOnly && !isFamilyMember) return false;
       return true;
     })

@@ -2630,34 +2630,53 @@ export default function AnarchyPortal() {
                 <motion.div
                   initial={{ opacity: 0, y: -12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`mb-6 max-w-2xl w-full rounded-2xl bg-black/75 backdrop-blur-xl border px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 ${ALERT_MODES[alertMode].borderColor} ${ALERT_MODES[alertMode].glowClass}`}
+                  className="mb-6 max-w-3xl w-full rounded-2xl bg-black/80 backdrop-blur-xl border border-red-500/35 shadow-[0_10px_35px_rgba(220,38,38,0.18)] overflow-hidden flex items-center"
                 >
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <span className="relative flex h-3 w-3">
-                      <span
-                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${ALERT_MODES[alertMode].dotColor}`}
-                      />
-                      <span
-                        className={`relative inline-flex rounded-full h-3 w-3 ${ALERT_MODES[alertMode].dotColor}`}
-                      />
+                  <style>{`
+                    @keyframes anarchyNewsMarquee {
+                      0% { transform: translateX(-100%); }
+                      100% { transform: translateX(100%); }
+                    }
+                    .anarchy-ticker-track {
+                      display: inline-flex;
+                      align-items: center;
+                      white-space: nowrap;
+                      animation: anarchyNewsMarquee 22s linear infinite;
+                    }
+                    .anarchy-ticker-wrap:hover .anarchy-ticker-track {
+                      animation-play-state: paused;
+                    }
+                  `}</style>
+
+                  <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-l from-red-600/30 to-red-950/60 border-l border-red-500/35 shrink-0 z-10">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
                     </span>
-                    <span
-                      className={`text-[11px] font-black px-2.5 py-0.5 rounded-lg border ${ALERT_MODES[alertMode].badgeBg}`}
-                    >
-                      {ALERT_MODES[alertMode].label}
+                    <span className="text-[11px] font-black tracking-wider text-[#f5efe6]">
+                      آخر الأخبار
                     </span>
                   </div>
 
-                  <p className="text-xs font-bold text-[#f5efe6] text-center sm:text-right flex-1">
-                    {alertMessage}
-                  </p>
+                  <div className="anarchy-ticker-wrap relative flex-1 overflow-hidden py-3 px-4">
+                    <div className="anarchy-ticker-track gap-8 text-xs font-bold text-[#f5efe6]">
+                      {(alertMessage || "مرحباً بكم في البوابة الرسمية لعيلة ANARCHY SYNDICATE")
+                        .split("|")
+                        .map((item, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-3">
+                            <span>{item.trim()}</span>
+                            <span className="text-red-500 font-black">✦</span>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
 
-                  <span
+                  <div
                     dir="ltr"
-                    className="text-[9px] font-black tracking-[0.2em] text-zinc-400 uppercase shrink-0"
+                    className="hidden sm:flex items-center px-3.5 py-3 border-r border-white/10 text-[9px] font-black tracking-[0.22em] text-red-300/80 uppercase shrink-0 bg-black/40"
                   >
-                    {ALERT_MODES[alertMode].en}
-                  </span>
+                    ANARCHY NEWS
+                  </div>
                 </motion.div>
 
                 <motion.div

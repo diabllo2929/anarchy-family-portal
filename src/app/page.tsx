@@ -782,10 +782,25 @@ export default function AnarchyPortal() {
 
       if (dId || dName) {
         try {
+          const oauthAvatar =
+            user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+          const oauthName =
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.user_metadata?.user_name ||
+            null;
+
           const permRes = await fetch("/api/check-discord-perms", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ discordId: String(dId), username: String(dName) }),
+            body: JSON.stringify({
+              userId: user.id,
+              email: user.email || "",
+              discordId: String(dId),
+              username: String(dName),
+              oauthAvatar,
+              oauthName,
+            }),
           });
           if (permRes.ok) {
             const perms = await permRes.json();
@@ -793,6 +808,18 @@ export default function AnarchyPortal() {
               isDev: Boolean(perms.isDev),
               isGang: Boolean(perms.isGang),
             });
+            if (perms.member) {
+              setCurrentMember(perms.member);
+              setMembers((prev) => {
+                const exists = prev.some((item) => item.id === perms.member.id);
+                if (exists) {
+                  return prev.map((item) =>
+                    item.id === perms.member.id ? perms.member : item
+                  );
+                }
+                return [...prev, perms.member];
+              });
+            }
             setActiveTab((prev) => {
               if (["admin", "vault", "weapons"].includes(prev) && !perms.isDev) return "home";
               if (["tasks", "leaderboard"].includes(prev) && !perms.isDev && !perms.isGang) return "home";

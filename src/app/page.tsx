@@ -588,7 +588,7 @@ export default function AnarchyPortal() {
           }
 
           merged.sort((a: any, b: any) => Number(a.rank_order || 99) - Number(b.rank_order || 99));
-          setMembers(merged);
+          applyLiveDiscordMembers(merged);
           setCurrentMember((prev: any) => {
             if (!prev) return prev;
             const updatedSelf = merged.find(
@@ -604,7 +604,7 @@ export default function AnarchyPortal() {
         }
       }
     } catch {}
-    setMembers(cleanDb);
+    applyLiveDiscordMembers(cleanDb);
   };
   const [warns, setWarns] = useState<MemberWarn[]>([]);
   const [settingsMap, setSettingsMap] = useState<Record<string, FamilySetting>>({});
@@ -902,8 +902,8 @@ export default function AnarchyPortal() {
             });
             if (perms.member) {
               setCurrentMember(perms.member);
-              await applyLiveDiscordMembers((prev) => {
-                const exists = prev.some((item) => item.id === perms.member.id);
+              setMembers((prev: Member[]) => {
+                const exists = prev.some((item: Member) => item.id === perms.member.id);
                 if (exists) {
                   return prev.map((item) =>
                     item.id === perms.member.id ? perms.member : item

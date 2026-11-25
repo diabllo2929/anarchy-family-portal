@@ -1293,7 +1293,7 @@ export default function AnarchyPortal() {
     }
 
     const confirmed = confirm(
-      `هل أنت متأكد من حذف وطرد "${member.ic_name}" (${member.email}) نهائياً من الموقع؟\nسيتم مسح بياناته وتاسكاته وتحذيراته بالكامل.`
+      `هل أنت متأكد من حذف وطرد "${member.ic_name}" (${member.discord_username ? `@${member.discord_username}` : ""}) نهائياً من الموقع؟\nسيتم مسح بياناته وتاسكاته وتحذيراته بالكامل.`
     );
     if (!confirmed) return;
 
@@ -4351,7 +4351,7 @@ export default function AnarchyPortal() {
                                           </span>
                                         ))}
                                       </div>
-                                      <div className="text-[11px] text-zinc-400">{m.email}</div>
+                                      <div className="text-[11px] text-zinc-400">{m.discord_username ? `@${m.discord_username}` : ""}</div>
                                     </div>
                                   </div>
 

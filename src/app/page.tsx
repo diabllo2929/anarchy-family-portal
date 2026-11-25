@@ -2163,7 +2163,7 @@ export default function AnarchyPortal() {
       />
       <div
         className={`fixed inset-0 z-0 pointer-events-none transition-all duration-700 ${
-          alertMode === "war"
+          false
             ? "bg-gradient-to-b from-red-950/60 via-black/50 to-black/90"
             : activeTab === "home"
             ? "bg-gradient-to-b from-black/45 via-black/35 to-black/88"

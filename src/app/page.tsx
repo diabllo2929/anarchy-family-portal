@@ -4304,7 +4304,7 @@ export default function AnarchyPortal() {
                                         : "تعديل الرولات والروابط"}
                                     </button>
 
-                                    {m.id !== currentMember?.id &&
+                                                                        {m.id !== currentMember?.id &&
                                       m.email.toLowerCase() !==
                                         currentUserEmail.toLowerCase() && (
                                         <button
@@ -4317,21 +4317,7 @@ export default function AnarchyPortal() {
                                           <span>حذف</span>
                                         </button>
                                       )}
-
-                                    {m.id !== currentMember?.id &&
-                                      m.email.toLowerCase() !==
-                                        currentUserEmail.toLowerCase() && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteMember(m)}
-                                          title="حذف / طرد العضو من الموقع نهائياً"
-                                          className="px-3 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 border border-red-500/45 text-red-400 hover:text-red-300 text-xs font-black flex items-center gap-1 cursor-pointer"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                          <span>حذف</span>
-                                        </button>
-                                      )}
-                                  </div>
+</div>
                                 </div>
 
                                 {memberWarns.length > 0 && (

@@ -521,6 +521,81 @@ export default function AnarchyPortal() {
 
   const [members, setMembers] = useState<Member[]>([]);
 
+  const getRoleOrderFromRoles = (roles: string[], fallbackOrder = 99): number => {
+    if (!Array.isArray(roles) || roles.length === 0) return fallbackOrder;
+    let best = 99;
+    for (const r of roles) {
+      const found = AVAILABLE_ROLES.find(
+        (ar) => ar.label.toLowerCase() === String(r).toLowerCase()
+      );
+      if (found && found.order < best) best = found.order;
+    }
+    return best < 99 ? best : fallbackOrder;
+  };
+
+  const ensureMemberInDb = async (member: Member): Promise<Member | null> => {
+    if (!member) return null;
+    if (!String(member.id).startsWith("discord-")) {
+      return member;
+    }
+    const dId = member.discord_id || String(member.id).replace(/^discord-/, "");
+    if (dId) {
+      const { data: existingByDiscord } = await supabase
+        .from("members")
+        .select("*")
+        .eq("discord_id", dId)
+        .maybeSingle();
+      if (existingByDiscord) {
+        const realExisting = existingByDiscord as Member;
+        setMembers((prev: Member[]) =>
+          prev.map((m) => (m.id === member.id ? realExisting : m))
+        );
+        return realExisting;
+      }
+    }
+
+    const roles = getMemberRoles(member);
+    const computedOrder = getRoleOrderFromRoles(roles, Number(member.rank_order || 6));
+    const highestRole =
+      AVAILABLE_ROLES.find((r) => r.order === computedOrder)?.label ||
+      roles[0] ||
+      "Gang";
+
+    const { data: created, error } = await supabase
+      .from("members")
+      .insert({
+        email: member.email || `${dId || Date.now()}@anarchy.discord`,
+        ic_name: member.ic_name || member.discord_username || "Anarchy Member",
+        discord_username: member.discord_username || null,
+        discord_id: dId || null,
+        avatar_url: member.avatar_url || null,
+        rank_name: highestRole,
+        rank_order: computedOrder,
+        roles_list: roles,
+        role:
+          roles.includes("Dev") || roles.includes("Boss")
+            ? "super_admin"
+            : ["Co-Boss", "Leader", "Manager"].some((r) => roles.includes(r))
+            ? "admin"
+            : "member",
+        points: Number(member.points || 0),
+        tasks_completed_count: Number(member.tasks_completed_count || 0),
+      })
+      .select()
+      .single();
+
+    if (error || !created) {
+      alert("تعذر حفظ العضو في قاعدة البيانات: " + (error?.message || "خطأ غير معروف"));
+      return null;
+    }
+
+    const realMember = created as Member;
+    setMembers((prev: Member[]) =>
+      prev.map((m) => (m.id === member.id ? realMember : m))
+    );
+    return realMember;
+  };
+
   const applyLiveDiscordMembers = async (dbList: any[]) => {
     const cleanDb = (Array.isArray(dbList) ? dbList : []).filter(
       (m: any) => !(m.email && String(m.email).toLowerCase().endsWith("@gmail.com") && !m.discord_id)
@@ -563,8 +638,8 @@ export default function AnarchyPortal() {
             discord_id: dm.discord_id,
             avatar_url: dm.avatar_url,
             roles_list: finalRoles.length > 0 ? finalRoles : dm.roles_list,
-            rank_name: dm.isDev ? "Dev" : (finalRoles[0] || "Gang"),
-            rank_order: dm.isDev ? 3 : Math.min(Number(match.rank_order || 6), 6),
+            rank_name: AVAILABLE_ROLES.find((r) => r.order === getRoleOrderFromRoles(finalRoles, dm.isDev ? 3 : 6))?.label || (dm.isDev ? "Dev" : "Gang"),
+            rank_order: getRoleOrderFromRoles(finalRoles, dm.isDev ? 3 : 6),
             role: dm.isDev ? "admin" : match.role || "member",
           });
         } else {
@@ -603,7 +678,7 @@ export default function AnarchyPortal() {
         }
       }
 
-      merged.sort((a: any, b: any) => Number(a.rank_order || 99) - Number(b.rank_order || 99));
+      merged.sort((a: any, b: any) => { const oa = getRoleOrderFromRoles(getMemberRoles(a), Number(a.rank_order || 99)); const ob = getRoleOrderFromRoles(getMemberRoles(b), Number(b.rank_order || 99)); return oa !== ob ? oa - ob : String(a.ic_name || "").localeCompare(String(b.ic_name || "")); });
       return merged as Member[];
     });
   };
@@ -919,16 +994,41 @@ export default function AnarchyPortal() {
               isDev: Boolean(perms.isDev),
               isGang: Boolean(perms.isGang),
             });
-            if (perms.member) {
-              setCurrentMember(perms.member);
+            let resolvedSelf: Member | null = perms.member || me;
+            if (!resolvedSelf && (perms.isDev || perms.isGang)) {
+              const tempSelf: any = {
+                id: `discord-${perms.resolvedDiscordId || dId}`,
+                email: `${perms.resolvedDiscordId || dId || Date.now()}@anarchy.discord`,
+                ic_name: perms.displayName || oauthName || dName || "Anarchy Member",
+                discord_username: perms.discordUsername || dName || "",
+                discord_id: perms.resolvedDiscordId || String(dId),
+                avatar_url: perms.discordAvatar || oauthAvatar || null,
+                rank_name: perms.isDev ? "Dev" : "Gang",
+                rank_order: perms.isDev ? 3 : 6,
+                roles_list: perms.isDev ? ["Dev"] : ["Gang"],
+                role: perms.isDev ? "super_admin" : "member",
+                points: 0,
+                tasks_completed_count: 0,
+              };
+              resolvedSelf = (await ensureMemberInDb(tempSelf)) || tempSelf;
+            }
+            if (resolvedSelf) {
+              setCurrentMember(resolvedSelf);
               setMembers((prev: Member[]) => {
-                const exists = prev.some((item: Member) => item.id === perms.member.id);
+                const exists = prev.some(
+                  (item: Member) =>
+                    item.id === resolvedSelf!.id ||
+                    (resolvedSelf!.discord_id && item.discord_id === resolvedSelf!.discord_id)
+                );
                 if (exists) {
                   return prev.map((item) =>
-                    item.id === perms.member.id ? perms.member : item
+                    item.id === resolvedSelf!.id ||
+                    (resolvedSelf!.discord_id && item.discord_id === resolvedSelf!.discord_id)
+                      ? resolvedSelf!
+                      : item
                   );
                 }
-                return [...prev, perms.member];
+                return [...prev, resolvedSelf!];
               });
             }
             setActiveTab((prev) => {
@@ -936,6 +1036,7 @@ export default function AnarchyPortal() {
               if (["tasks", "leaderboard"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
               return prev;
             });
+            return;
           }
         } catch {}
       } else {
@@ -949,11 +1050,14 @@ export default function AnarchyPortal() {
           ? [me.rank_name]
           : ["زائر"]
         : ["زائر"];
-      const stillAdmin = freshRoles.some((r: string) =>
-        ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r)
-      );
+      const stillAdmin =
+        liveDiscordPerms.isDev ||
+        freshRoles.some((r: string) =>
+          ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r)
+        );
       const stillFamily =
         stillAdmin ||
+        liveDiscordPerms.isGang ||
         freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
       setActiveTab((prev) => {
         if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
@@ -1275,7 +1379,7 @@ export default function AnarchyPortal() {
     }
   };
 
-  const handleQuickPoints = async (member: Member, delta: number) => {
+  const handleQuickPoints = async (rawMember: Member, delta: number) => { const member = await ensureMemberInDb(rawMember); if (!member) return;
     const newPts = Number(member.points || 0) + delta;
     const { error } = await supabase
       .from("members")
@@ -1302,7 +1406,7 @@ export default function AnarchyPortal() {
     }
   };
 
-  const handleIssueWarn = async (member: Member) => {
+  const handleIssueWarn = async (rawMember: Member) => { const member = await ensureMemberInDb(rawMember); if (!member) return;
     if (!warnReason.trim()) {
       alert("اكتب سبب الـ Warn أولاً");
       return;
@@ -2079,7 +2183,7 @@ export default function AnarchyPortal() {
           const rList = getMemberRoles(m);
           return m.rank_order < 90 && !(rList.length === 1 && rList[0] === "زائر");
         })
-        .sort((a, b) => a.rank_order - b.rank_order),
+        .sort((a, b) => { const oa = getRoleOrderFromRoles(getMemberRoles(a), Number(a.rank_order || 99)); const ob = getRoleOrderFromRoles(getMemberRoles(b), Number(b.rank_order || 99)); return oa !== ob ? oa - ob : String(a.ic_name || "").localeCompare(String(b.ic_name || "")); }),
     [members]
   );
 

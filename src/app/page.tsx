@@ -517,6 +517,7 @@ export default function AnarchyPortal() {
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentMember, setCurrentMember] = useState<Member | null>(null);
+  const [liveDiscordPerms, setLiveDiscordPerms] = useState<{ isDev: boolean; isGang: boolean }>({ isDev: false, isGang: false });
 
   const [members, setMembers] = useState<Member[]>([]);
   const [warns, setWarns] = useState<MemberWarn[]>([]);
@@ -766,6 +767,42 @@ export default function AnarchyPortal() {
             m.email.toLowerCase() === (user.email || "").toLowerCase()
         ) || null;
       setCurrentMember(me);
+
+      const dId =
+        me?.discord_id ||
+        user.user_metadata?.provider_id ||
+        user.user_metadata?.sub ||
+        "";
+      const dName =
+        me?.discord_username ||
+        user.user_metadata?.user_name ||
+        user.user_metadata?.name ||
+        user.user_metadata?.full_name ||
+        "";
+
+      if (dId || dName) {
+        try {
+          const permRes = await fetch("/api/check-discord-perms", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ discordId: String(dId), username: String(dName) }),
+          });
+          if (permRes.ok) {
+            const perms = await permRes.json();
+            setLiveDiscordPerms({
+              isDev: Boolean(perms.isDev),
+              isGang: Boolean(perms.isGang),
+            });
+            setActiveTab((prev) => {
+              if (["admin", "vault", "weapons"].includes(prev) && !perms.isDev) return "home";
+              if (["tasks", "leaderboard"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
+              return prev;
+            });
+          }
+        } catch {}
+      } else {
+        setLiveDiscordPerms({ isDev: false, isGang: false });
+      }
       // auto-kick-unauthorized-tab
       const freshRoles = me
         ? Array.isArray((me as any).roles_list) && (me as any).roles_list.length > 0

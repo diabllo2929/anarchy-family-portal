@@ -7,7 +7,7 @@ const GANG_ROLE_ID = "1543700433099563099";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { userId, email, discordId, username, oauthAvatar, oauthName } = body;
+    const { email, discordId, username, oauthAvatar, oauthName } = body;
 
     const botToken = process.env.DISCORD_BOT_TOKEN;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,7 +21,6 @@ export async function POST(req: Request) {
 
     const headers = { Authorization: `Bot ${botToken}` };
 
-    // جلب كل السيرفرات التي يوجد بها البوت حتى لا يختار سيرفراً خاطئاً
     const candidateGuildIds: string[] = [];
     if (process.env.DISCORD_GUILD_ID) {
       candidateGuildIds.push(process.env.DISCORD_GUILD_ID.trim());
@@ -44,9 +43,7 @@ export async function POST(req: Request) {
     let memberRoles: string[] = [];
     let discordUserObj: any = null;
     let resolvedDiscordId = (discordId || "").trim();
-    let matchedGuildId = "";
 
-    // البحث في كل السيرفرات عن العضو بالـ ID أو باليوزر
     for (const gId of candidateGuildIds) {
       if (resolvedDiscordId) {
         const mRes = await fetch(
@@ -57,7 +54,6 @@ export async function POST(req: Request) {
           const mData = await mRes.json();
           memberRoles = mData.roles || [];
           discordUserObj = mData.user;
-          matchedGuildId = gId;
           if (memberRoles.includes(DEV_ROLE_ID) || memberRoles.includes(GANG_ROLE_ID)) {
             break;
           }
@@ -88,7 +84,6 @@ export async function POST(req: Request) {
             memberRoles = found.roles || [];
             discordUserObj = found.user;
             resolvedDiscordId = found.user.id;
-            matchedGuildId = gId;
             if (memberRoles.includes(DEV_ROLE_ID) || memberRoles.includes(GANG_ROLE_ID)) {
               break;
             }
@@ -126,17 +121,19 @@ export async function POST(req: Request) {
     const supabase = createClient(supabaseUrl, serviceKey);
     const { data: existingMembers } = await supabase.from("members").select("*");
 
+    const cleanEmail = email ? String(email).toLowerCase().trim() : "";
+
     const existing = (existingMembers || []).find(
       (m: any) =>
-        (userId && m.user_id === userId) ||
         (finalDiscordId && m.discord_id === finalDiscordId) ||
-        (email && m.email && m.email.toLowerCase() === String(email).toLowerCase()) ||
+        (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail) ||
         (finalDiscordUsername &&
           m.discord_username &&
           m.discord_username.toLowerCase() === finalDiscordUsername.toLowerCase())
     );
 
     let updatedMember = existing || null;
+    let dbError: any = null;
 
     if (existing) {
       const currentRoles: string[] = Array.isArray(existing.roles_list)
@@ -152,17 +149,16 @@ export async function POST(req: Request) {
       if (nextRoles.length === 0) nextRoles = ["زائر"];
 
       const patch: any = {
-        ...(userId ? { user_id: userId } : {}),
         ...(finalDiscordId ? { discord_id: finalDiscordId } : {}),
         ...(finalDiscordUsername ? { discord_username: finalDiscordUsername } : {}),
         ...(finalAvatarUrl ? { avatar_url: finalAvatarUrl } : {}),
         roles_list: nextRoles,
         rank_name: nextRoles[0],
-        rank_order: isDev ? 3 : isGang ? 6 : 8,
-        role: isDev ? "super_admin" : isGang ? "member" : "visitor",
+        rank_order: isDev ? 3 : isGang ? 6 : 99,
+        role: isDev ? "admin" : "member",
       };
 
-      const { data: saved } = await supabase
+      const { data: saved, error } = await supabase
         .from("members")
         .update(patch)
         .eq("id", existing.id)
@@ -170,31 +166,38 @@ export async function POST(req: Request) {
         .single();
 
       if (saved) updatedMember = saved;
+      if (error) dbError = error.message;
     } else if (isGang || isDev) {
       const autoRoles = isDev ? ["Dev"] : ["Gang"];
-      const { data: inserted } = await supabase
+      const fallbackEmail =
+        cleanEmail || `${finalDiscordId || Date.now()}@anarchy.discord`;
+
+      const { data: inserted, error } = await supabase
         .from("members")
-        .insert({
-          user_id: userId || null,
-          email: email || `${finalDiscordId || Date.now()}@discord.user`,
-          ic_name:
-            discordUserObj?.global_name ||
-            oauthName ||
-            finalDiscordUsername ||
-            "Anarchy Member",
-          discord_username: finalDiscordUsername || "Discord User",
-          discord_id: finalDiscordId,
-          avatar_url: finalAvatarUrl,
-          rank_name: autoRoles[0],
-          rank_order: isDev ? 3 : 6,
-          roles_list: autoRoles,
-          role: isDev ? "super_admin" : "member",
-          points: 0,
-        })
+        .upsert(
+          {
+            email: fallbackEmail,
+            ic_name:
+              discordUserObj?.global_name ||
+              oauthName ||
+              finalDiscordUsername ||
+              "Anarchy Member",
+            discord_username: finalDiscordUsername || "Discord User",
+            discord_id: finalDiscordId,
+            avatar_url: finalAvatarUrl,
+            rank_name: autoRoles[0],
+            rank_order: isDev ? 3 : 6,
+            roles_list: autoRoles,
+            role: isDev ? "admin" : "member",
+            points: 0,
+          },
+          { onConflict: "email" }
+        )
         .select()
         .single();
 
       if (inserted) updatedMember = inserted;
+      if (error) dbError = error.message;
     }
 
     return NextResponse.json({
@@ -202,14 +205,7 @@ export async function POST(req: Request) {
       isGang,
       resolvedDiscordId: finalDiscordId,
       member: updatedMember,
-      debug: {
-        matchedGuildId,
-        candidateGuildIds,
-        foundRolesCount: memberRoles.length,
-        memberRoles,
-        sentDiscordId: discordId,
-        sentUsername: username,
-      },
+      dbError,
     });
   } catch (err: any) {
     return NextResponse.json({ isDev: false, isGang: false, error: err.message });

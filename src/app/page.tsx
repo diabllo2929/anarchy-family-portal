@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, useCallback, MouseEvent, useMemo } from "react";
 import {
@@ -4183,6 +4183,27 @@ export default function AnarchyPortal() {
                               + ضم العضو للعيلة
                             </button>
                           </form>
+                          <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-[11px] text-zinc-400">
+                              لو ضفت عضو يدوي وصورته لسه مش ظاهرة، اسحب صورهم من سيرفر الديسكورد مباشرة:
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const res = await fetch("/api/sync-discord-avatars", { method: "POST" });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  await fetchAllData();
+                                  alert(`تم تحديث صور الديسكورد لـ (${data.updatedCount}) عضو بنجاح! 🎉`);
+                                } else {
+                                  alert("فشل المزامنة: " + (data.error || "تأكد من صلاحية البوت"));
+                                }
+                              }}
+                              className="btn-cream-ghost px-4 py-2 rounded-xl text-xs font-black text-amber-300 hover:text-white cursor-pointer"
+                            >
+                              🔄 مزامنة صور الديسكورد من السيرفر
+                            </button>
+                          </div>
                         </div>
 
                         <div className="anarchy-glass rounded-[30px] p-6 space-y-4">

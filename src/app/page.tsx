@@ -520,6 +520,92 @@ export default function AnarchyPortal() {
   const [liveDiscordPerms, setLiveDiscordPerms] = useState<{ isDev: boolean; isGang: boolean }>({ isDev: false, isGang: false });
 
   const [members, setMembers] = useState<Member[]>([]);
+
+  const applyLiveDiscordMembers = async (dbList: any[]) => {
+    const cleanDb = (Array.isArray(dbList) ? dbList : []).filter(
+      (m: any) => !(m.email && String(m.email).toLowerCase().endsWith("@gmail.com") && !m.discord_id)
+    );
+    try {
+      const res = await fetch("/api/discord-gang-members", { cache: "no-store" });
+      if (res.ok) {
+        const payload = await res.json();
+        const liveList: any[] = Array.isArray(payload.members) ? payload.members : [];
+        if (liveList.length > 0) {
+          const merged: any[] = [];
+          const usedDbIds = new Set<any>();
+
+          for (const dm of liveList) {
+            const match = cleanDb.find(
+              (m: any) =>
+                (dm.discord_id && m.discord_id === dm.discord_id) ||
+                (dm.discord_username &&
+                  m.discord_username &&
+                  String(m.discord_username).toLowerCase() === String(dm.discord_username).toLowerCase())
+            );
+            if (match) {
+              usedDbIds.add(match.id);
+              const existingRoles = Array.isArray(match.roles_list)
+                ? match.roles_list.filter((r: string) => r !== "Dev" && r !== "Gang" && r !== "زائر")
+                : [];
+              const finalRoles = [
+                ...(dm.isDev ? ["Dev"] : []),
+                ...(dm.isGang && !dm.isDev ? ["Gang"] : []),
+                ...existingRoles,
+              ];
+              merged.push({
+                ...match,
+                ic_name: dm.ic_name,
+                discord_username: dm.discord_username,
+                discord_id: dm.discord_id,
+                avatar_url: dm.avatar_url,
+                roles_list: finalRoles.length > 0 ? finalRoles : dm.roles_list,
+                rank_name: dm.isDev ? "Dev" : (finalRoles[0] || "Gang"),
+                rank_order: dm.isDev ? 3 : Math.min(Number(match.rank_order || 6), 6),
+                role: dm.isDev ? "admin" : match.role || "member",
+              });
+            } else {
+              merged.push({
+                id: `discord-${dm.discord_id}`,
+                email: `${dm.discord_id}@anarchy.discord`,
+                ic_name: dm.ic_name,
+                discord_username: dm.discord_username,
+                discord_id: dm.discord_id,
+                avatar_url: dm.avatar_url,
+                roles_list: dm.roles_list,
+                rank_name: dm.rank_name,
+                rank_order: dm.rank_order,
+                role: dm.role,
+                points: 0,
+                tasks_completed_count: 0,
+              });
+            }
+          }
+
+          for (const rem of cleanDb) {
+            if (!usedDbIds.has(rem.id) && rem.discord_id) {
+              merged.push(rem);
+            }
+          }
+
+          merged.sort((a: any, b: any) => Number(a.rank_order || 99) - Number(b.rank_order || 99));
+          setMembers(merged);
+          setCurrentMember((prev: any) => {
+            if (!prev) return prev;
+            const updatedSelf = merged.find(
+              (m: any) =>
+                (prev.discord_id && m.discord_id === prev.discord_id) ||
+                (prev.discord_username &&
+                  m.discord_username &&
+                  String(m.discord_username).toLowerCase() === String(prev.discord_username).toLowerCase())
+            );
+            return updatedSelf || prev;
+          });
+          return;
+        }
+      }
+    } catch {}
+    setMembers(cleanDb);
+  };
   const [warns, setWarns] = useState<MemberWarn[]>([]);
   const [settingsMap, setSettingsMap] = useState<Record<string, FamilySetting>>({});
   const [tasks, setTasks] = useState<WeeklyTask[]>([]);
@@ -765,7 +851,7 @@ export default function AnarchyPortal() {
       ]);
 
       const allMembers = membersData || [];
-      setMembers(allMembers);
+      await applyLiveDiscordMembers(allMembers);
       const me =
         allMembers.find(
           (m) =>
@@ -816,7 +902,7 @@ export default function AnarchyPortal() {
             });
             if (perms.member) {
               setCurrentMember(perms.member);
-              setMembers((prev) => {
+              await applyLiveDiscordMembers((prev) => {
                 const exists = prev.some((item) => item.id === perms.member.id);
                 if (exists) {
                   return prev.map((item) =>
@@ -1178,7 +1264,7 @@ export default function AnarchyPortal() {
       .eq("id", member.id);
 
     if (!error) {
-      setMembers(
+      await applyLiveDiscordMembers(
         members.map((m) => (m.id === member.id ? { ...m, points: newPts } : m))
       );
       if (dossierMember?.id === member.id) {
@@ -1233,7 +1319,7 @@ export default function AnarchyPortal() {
     if (warnData) {
       setWarns([...warns, warnData]);
     }
-    setMembers(
+    await applyLiveDiscordMembers(
       members.map((m) => (m.id === member.id ? { ...m, points: deductedPoints } : m))
     );
 
@@ -1293,7 +1379,7 @@ export default function AnarchyPortal() {
     }
 
     const confirmed = confirm(
-      `هل أنت متأكد من حذف وطرد "${member.ic_name}" (${member.discord_username ? `@${member.discord_username}` : ""}) نهائياً من الموقع؟\nسيتم مسح بياناته وتاسكاته وتحذيراته بالكامل.`
+      `هل أنت متأكد من حذف وطرد "${member.ic_name}" (${member.discord_username ? <span dir="ltr">@{member.discord_username}</span> : ""}) نهائياً من الموقع؟\nسيتم مسح بياناته وتاسكاته وتحذيراته بالكامل.`
     );
     if (!confirmed) return;
 
@@ -1308,7 +1394,7 @@ export default function AnarchyPortal() {
       return;
     }
 
-    setMembers(members.filter((m) => m.id !== member.id));
+    await applyLiveDiscordMembers(members.filter((m) => m.id !== member.id));
     setWarns(warns.filter((w) => w.member_id !== member.id));
     setSubmissions(submissions.filter((s) => s.member_id !== member.id));
     if (editingMemberId === member.id) setEditingMemberId(null);
@@ -1773,7 +1859,7 @@ export default function AnarchyPortal() {
         .from("members")
         .update({ tasks_completed_count: newCount })
         .eq("id", member.id);
-      setMembers(
+      await applyLiveDiscordMembers(
         members.map((m) =>
           m.id === member.id ? { ...m, tasks_completed_count: newCount } : m
         )
@@ -1805,7 +1891,7 @@ export default function AnarchyPortal() {
           .from("members")
           .update({ tasks_completed_count: newCount })
           .eq("id", member.id);
-        setMembers(
+        await applyLiveDiscordMembers(
           members.map((m) =>
             m.id === member.id ? { ...m, tasks_completed_count: newCount } : m
           )
@@ -1943,7 +2029,7 @@ export default function AnarchyPortal() {
         }),
       });
     }
-    setMembers(
+    await applyLiveDiscordMembers(
       members
         .map((m) => (m.id === memberId ? ({ ...m, ...updates } as Member) : m))
         .sort((a, b) => a.rank_order - b.rank_order)
@@ -4351,7 +4437,7 @@ export default function AnarchyPortal() {
                                           </span>
                                         ))}
                                       </div>
-                                      <div className="text-[11px] text-zinc-400">{m.discord_username ? `@${m.discord_username}` : ""}</div>
+                                      <div className="text-[11px] text-zinc-400">{m.discord_username ? <span dir="ltr">@{m.discord_username}</span> : ""}</div>
                                     </div>
                                   </div>
 

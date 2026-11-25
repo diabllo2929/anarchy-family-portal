@@ -3314,8 +3314,8 @@ export default function AnarchyPortal() {
                 <div className="space-y-3">
                   {(settingsMap["rules"]?.content || "")
                     .split("\n")
-                    .filter((line) => line.trim())
-                    .map((ruleLine, i) => (
+                    .filter((line: string) => line.trim())
+                    .map((ruleLine: string, i: number) => (
                       <div
                         key={i}
                         className="p-4 rounded-2xl bg-black/60 border border-white/15 text-sm text-[#f5efe6] font-bold leading-relaxed"

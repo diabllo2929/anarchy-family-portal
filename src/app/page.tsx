@@ -730,6 +730,8 @@ export default function AnarchyPortal() {
     { id: number; title: string; message: string; type: "success" | "error" | "warn" }[]
   >([]);
   const [buyingShopItemId, setBuyingShopItemId] = useState<string | null>(null);
+  const [shopCategoryFilter, setShopCategoryFilter] = useState<"all" | "weapons" | "passes" | "supplies">("all");
+  const [confirmShopItemId, setConfirmShopItemId] = useState<string | null>(null);
 
   const playNotificationSound = useCallback((type: "success" | "error" | "warn" = "success") => {
     try {
@@ -1630,30 +1632,94 @@ const TAB_ORDER: TabType[] = [
     }
   };
 
-  const BLACK_MARKET_ITEMS = [
+const BLACK_MARKET_ITEMS = [
     {
       id: "remove_warn",
-      title: "إزالة Warn نشط",
-      subtitle: "مسح أقدم تحذير مسجل عليك وتخفيض رول التحذير في الديسكورد تلقائياً",
+      category: "passes" as const,
+      code: "CLR-01",
+      title: "إزالة Warn واحد",
+      subtitle: "مسح أقدم تحذير نشط مسجل عليك وتخفيض رول التحذير في الديسكورد تلقائياً",
       cost: 10,
       badge: "DISCIPLINE CLEAR",
-      accent: "amber",
+      accent: "amber" as const,
+      instant: true,
     },
     {
-      id: "task_exemption",
-      title: "إعفاء من تاسك الأسبوع",
-      subtitle: "تصريح إعفاء رسمي من تسليم التاسك الأسبوعي بدون خصم نقط",
+      id: "emergency_leave",
+      category: "passes" as const,
+      code: "PAS-02",
+      title: "إجازة ضرورية",
+      subtitle: "تصريح إجازة طارئة معتمد من القيادة مع إرسال إشعار رسمي في غرفة الإدارة",
+      cost: 10,
+      badge: "URGENT LEAVE",
+      accent: "cyan" as const,
+      instant: false,
+    },
+    {
+      id: "gang_vest",
+      category: "weapons" as const,
+      code: "ARM-03",
+      title: "شراء فيست عصابات",
+      subtitle: "درع حماية ثقيل مخصص لأعضاء العيلة في الاشتباكات والعمليات الميدانية",
       cost: 15,
-      badge: "WEEKLY PASS",
-      accent: "cyan",
+      badge: "HEAVY ARMOR",
+      accent: "crimson" as const,
+      instant: false,
     },
     {
-      id: "extra_weapon",
-      title: "سلاح إضافي من الخزنة",
-      subtitle: "طلب صرف قطعة سلاح إضافية من مخزن العيلة بواسطة القيادة",
+      id: "desert_glock",
+      category: "weapons" as const,
+      code: "WPN-04",
+      title: "شراء جلوك صحراوي",
+      subtitle: "مسدس Desert Glock تكتيكي جاهز للاستلام الفوري من مخزن السلاح",
+      cost: 15,
+      badge: "SIDEARM • 15 PTS",
+      accent: "crimson" as const,
+      instant: false,
+    },
+    {
+      id: "weapon_sen",
+      category: "weapons" as const,
+      code: "WPN-05",
+      title: "شراء سلاح SEN",
+      subtitle: "قطعة سلاح SEN هجومية معتمدة من ترسانة ANARCHY للعمليات",
       cost: 20,
-      badge: "ARMORY DROP",
-      accent: "crimson",
+      badge: "ASSAULT • 20 PTS",
+      accent: "crimson" as const,
+      instant: false,
+    },
+    {
+      id: "meth_100",
+      category: "supplies" as const,
+      code: "SUP-06",
+      title: "شراء 100 حبة ميث",
+      subtitle: "شحنة 100x Meth مغلفة وجاهزة للتسليم السري عبر مسؤول الخزنة",
+      cost: 20,
+      badge: "CONTRABAND • 100X",
+      accent: "emerald" as const,
+      instant: false,
+    },
+    {
+      id: "free_leave",
+      category: "passes" as const,
+      code: "PAS-07",
+      title: "إجازة من غير سبب",
+      subtitle: "تصريح غياب حر بدون إبداء أسباب مع الحفاظ الكامل على نقاطك ورتبتك",
+      cost: 20,
+      badge: "VIP PASS",
+      accent: "purple" as const,
+      instant: false,
+    },
+    {
+      id: "weapon_p2011",
+      category: "weapons" as const,
+      code: "WPN-08",
+      title: "شراء سلاح P2011",
+      subtitle: "مسدس P2011 عالي الدقة من الفئة النادرة في ترسانة العيلة",
+      cost: 30,
+      badge: "ELITE SIDEARM",
+      accent: "gold" as const,
+      instant: false,
     },
   ];
 

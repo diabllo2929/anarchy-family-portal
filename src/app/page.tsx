@@ -935,7 +935,7 @@ export default function AnarchyPortal() {
   }, []);
 
   const sendDiscordEvent = async (payload: {
-    category?: "log" | "warn";
+    category?: "log" | "warn" | "warn_sync";
     title: string;
     description?: string;
     color?: number;
@@ -1558,18 +1558,63 @@ export default function AnarchyPortal() {
     const targetMember = members.find((m) => m.id === targetWarn?.member_id);
 
     await supabase.from("member_warns").delete().eq("id", warnId);
-    setWarns(warns.filter((w) => w.id !== warnId));
 
+    const remainingAll = warns.filter((w) => w.id !== warnId);
     if (targetWarn) {
+      const memberRemaining = remainingAll
+        .filter((w) => w.member_id === targetWarn.member_id)
+        .sort(
+          (a, b) =>
+            new Date(a.created_at || 0).getTime() -
+            new Date(b.created_at || 0).getTime()
+        );
+
+      for (let i = 0; i < memberRemaining.length; i++) {
+        const expectedNum = i + 1;
+        if (Number(memberRemaining[i].warn_number) !== expectedNum) {
+          memberRemaining[i] = { ...memberRemaining[i], warn_number: expectedNum };
+          await supabase
+            .from("member_warns")
+            .update({ warn_number: expectedNum })
+            .eq("id", memberRemaining[i].id);
+        }
+      }
+
+      const renumberedMap = new Map(memberRemaining.map((w) => [w.id, w]));
+      setWarns(remainingAll.map((w) => renumberedMap.get(w.id) || w));
+
+      const remainingCount = memberRemaining.length;
       await sendDiscordEvent({
-        title: "🧹 إزالة تحذير (Warn Removed)",
+        category: "warn_sync",
+        title: "\uD83E\uDDF9 \u0625\u0632\u0627\u0644\u0629 \u062A\u062D\u0630\u064A\u0631 (Warn Removed)",
         color: 0x3b82f6,
+        targetDiscordId: targetMember?.discord_id,
+        targetDiscordUsername: targetMember?.discord_username,
+        targetIcName: targetMember?.ic_name,
+        warnNumber: remainingCount,
         fields: [
-          { name: "العضو", value: targetMember?.ic_name || "عضو", inline: true },
-          { name: "رقم التحذير", value: `Warn #${targetWarn.warn_number}`, inline: true },
-          { name: "السبب السابق", value: targetWarn.reason, inline: false },
+          {
+            name: "\u0627\u0644\u0639\u0636\u0648",
+            value: targetMember?.ic_name || "\u0639\u0636\u0648",
+            inline: true,
+          },
+          {
+            name: "\u0627\u0644\u0631\u0648\u0644 \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0639\u062F \u0627\u0644\u062A\u062D\u062F\u064A\u062B",
+            value:
+              remainingCount > 0
+                ? `Warn ${remainingCount}`
+                : "\u0628\u062F\u0648\u0646 \u062A\u062D\u0630\u064A\u0631\u0627\u062A",
+            inline: true,
+          },
+          {
+            name: "\u0627\u0644\u0633\u0628\u0628 \u0627\u0644\u0633\u0627\u0628\u0642",
+            value: targetWarn.reason,
+            inline: false,
+          },
         ],
       });
+    } else {
+      setWarns(remainingAll);
     }
   };
 

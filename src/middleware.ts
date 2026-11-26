@@ -38,6 +38,11 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
+  if (path === '/' && request.nextUrl.searchParams.has('code')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/callback'
+    return NextResponse.redirect(url)
+  }
   if (
     !user &&
     !path.startsWith('/login') &&

@@ -1886,15 +1886,38 @@ const BLACK_MARKET_ITEMS = [
     }
 
     const warnPenalty = nextWarnNumber === 1 ? 5 : nextWarnNumber === 2 ? 10 : 15;
-    const deductedPoints = Number(member.points || 0) - warnPenalty;
-    await supabase
+    const { data: freshMemberRow } = await supabase
+      .from("members")
+      .select("points")
+      .eq("id", member.id)
+      .maybeSingle();
+    const basePoints = Number(freshMemberRow?.points ?? member.points ?? 0);
+    const deductedPoints = basePoints - warnPenalty;
+
+    const { error: ptsUpdateErr } = await supabase
       .from("members")
       .update({ points: deductedPoints })
       .eq("id", member.id);
 
-    if (warnData) {
-      setWarns([...warns, warnData]);
+    if (ptsUpdateErr) {
+      pushTacticalToast("خطأ في خصم نقاط الـ Warn: " + ptsUpdateErr.message, "error");
+      return;
     }
+
+    setMembers((prev: Member[]) =>
+      prev.map((m) => (m.id === member.id ? { ...m, points: deductedPoints } : m))
+    );
+    if (currentMember?.id === member.id) {
+      setCurrentMember((prev: Member | null) => (prev ? { ...prev, points: deductedPoints } : prev));
+    }
+    if (editingMemberId === member.id) {
+      setEditPoints(deductedPoints);
+    }
+
+    if (warnData) {
+      setWarns((prev) => [...prev, warnData]);
+    }
+
     await applyLiveDiscordMembers(
       members.map((m) => (m.id === member.id ? { ...m, points: deductedPoints } : m))
     );
@@ -1985,6 +2008,11 @@ const BLACK_MARKET_ITEMS = [
           },
         ],
       });
+
+      pushTacticalToast(
+        `تم إزالة Warn #${targetWarn.warn_number} عن ${targetMember?.ic_name || "العضو"} دون استرجاع النقط المخصومة.`,
+        "success"
+      );
     } else {
       setWarns(remainingAll);
     }

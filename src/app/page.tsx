@@ -1065,8 +1065,12 @@ const TAB_ORDER: TabType[] = [
   const canUploadGalleryMedia =
     isAdmin || isFamilyMember || currentMemberRoles.includes("Gang");
 
-  const showLockedNotice = (tabLabel: string) => {
-    pushTacticalToast(`قسم "${tabLabel}" مقفول 🔒 — متاح للإدارة والقيادة فقط`, "error", "صلاحيات مقيدة");
+  const showLockedNotice = (tabLabel: string, scope: "admin" | "family" = "admin") => {
+    const msg =
+      scope === "family"
+        ? `قسم "${tabLabel}" مقفول 🔒 — متاح لأعضاء العيلة (Gang) والقيادة فقط`
+        : `قسم "${tabLabel}" مقفول 🔒 — متاح للإدارة والقيادة فقط`;
+    pushTacticalToast(msg, "error", "صلاحيات مقيدة");
   };
 
   const fetchDiscordPresence = useCallback(async () => {
@@ -2785,16 +2789,15 @@ const BLACK_MARKET_ITEMS = [
     { id: "weapons", label: "لوج السلاح", icon: Crosshair, adminOnly: true },
   ];
 
-  const visibleNavItems = navItems
-    .filter((item) => {
-      if (item.adminOnly && !isAdmin) return false;
-      if (item.familyOnly && !isFamilyMember) return false;
-      return true;
-    })
-    .map((item) => ({
+  const visibleNavItems = navItems.map((item) => {
+    const lockedForAdmin = Boolean(item.adminOnly && !isAdmin);
+    const lockedForFamily = Boolean(item.familyOnly && !isFamilyMember && !isAdmin);
+    return {
       ...item,
-      isLocked: Boolean(item.adminOnly && !isAdmin),
-    }));
+      isLocked: lockedForAdmin || lockedForFamily,
+      lockScope: (lockedForAdmin ? "admin" : "family") as "admin" | "family",
+    };
+  });
 
   const selectedLogMemberObj = familyMembersOnly.find(
     (m) => m.ic_name.toLowerCase() === newLogMember.trim().toLowerCase()
@@ -2946,7 +2949,7 @@ const BLACK_MARKET_ITEMS = [
                     key={item.id}
                     onClick={() => {
                       if (item.isLocked) {
-                        showLockedNotice(item.label);
+                        showLockedNotice(item.label, item.lockScope);
                         return;
                       }
                       setActiveTab(item.id);
@@ -2954,7 +2957,9 @@ const BLACK_MARKET_ITEMS = [
                     }}
                     title={
                       item.isLocked
-                        ? `${item.label} (مقفول — للإدارة فقط)`
+                        ? item.lockScope === "family"
+                          ? `${item.label} (مقفول — لأعضاء العيلة فقط)`
+                          : `${item.label} (مقفول — للإدارة فقط)`
                         : item.label
                     }
                     className={`relative px-2.5 py-2 rounded-full text-[11px] font-black flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all cursor-pointer ${
@@ -3148,7 +3153,7 @@ const BLACK_MARKET_ITEMS = [
                       onClick={() => {
                         if (item.isLocked) {
                           setMobileNavOpen(false);
-                          showLockedNotice(item.label);
+                          showLockedNotice(item.label, item.lockScope);
                           return;
                         }
                         setActiveTab(item.id);

@@ -137,6 +137,22 @@ export async function GET(request: Request) {
     );
     const finalRoles = mergedRoles.length > 0 ? mergedRoles : rolesList;
 
+    const rolePriority: Record<string, number> = {
+      Boss: 1,
+      "Co-Boss": 2,
+      Dev: 3,
+      Leader: 4,
+      Manager: 5,
+      Gang: 6,
+      Streamer: 7,
+    };
+    const topRole =
+      [...finalRoles].sort(
+        (a, b) => (rolePriority[a] ?? 99) - (rolePriority[b] ?? 99)
+      )[0] || existingMember.rank_name;
+    const topOrder = rolePriority[topRole] ?? existingMember.rank_order;
+    const isTopAdmin = ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(topRole);
+
     await supabase
       .from("members")
       .update({
@@ -144,9 +160,14 @@ export async function GET(request: Request) {
         discord_id: discordId,
         discord_username: discordUsername,
         avatar_url: avatarUrl || existingMember.avatar_url,
-        role: hasDevRole ? "super_admin" : existingMember.role || "member",
-        rank_name: hasDevRole ? "Dev" : hasGangRole ? "Gang" : existingMember.rank_name,
-        rank_order: hasDevRole ? 3 : hasGangRole ? 6 : existingMember.rank_order,
+        role:
+          topRole === "Boss" || topRole === "Dev"
+            ? "super_admin"
+            : isTopAdmin
+            ? "admin"
+            : existingMember.role || "member",
+        rank_name: topRole,
+        rank_order: topOrder,
         roles_list: finalRoles,
       })
       .eq("id", existingMember.id);

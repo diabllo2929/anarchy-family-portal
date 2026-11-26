@@ -560,27 +560,33 @@ export default function AnarchyPortal() {
       AVAILABLE_ROLES.find((r) => r.order === computedOrder)?.label ||
       roles[0] ||
       "Gang";
+    const safeEmail = (
+      member.email || `${dId || Date.now()}@anarchy.discord`
+    ).toLowerCase();
 
     const { data: created, error } = await supabase
       .from("members")
-      .insert({
-        email: member.email || `${dId || Date.now()}@anarchy.discord`,
-        ic_name: member.ic_name || member.discord_username || "Anarchy Member",
-        discord_username: member.discord_username || null,
-        discord_id: dId || null,
-        avatar_url: member.avatar_url || null,
-        rank_name: highestRole,
-        rank_order: computedOrder,
-        roles_list: roles,
-        role:
-          roles.includes("Dev") || roles.includes("Boss")
-            ? "super_admin"
-            : ["Co-Boss", "Leader", "Manager"].some((r) => roles.includes(r))
-            ? "admin"
-            : "member",
-        points: Number(member.points || 0),
-        tasks_completed_count: Number(member.tasks_completed_count || 0),
-      })
+      .upsert(
+        {
+          email: safeEmail,
+          ic_name: member.ic_name || member.discord_username || "Anarchy Member",
+          discord_username: member.discord_username || null,
+          discord_id: dId || null,
+          avatar_url: member.avatar_url || null,
+          rank_name: highestRole,
+          rank_order: computedOrder,
+          roles_list: roles,
+          role:
+            roles.includes("Dev") || roles.includes("Boss")
+              ? "super_admin"
+              : ["Co-Boss", "Leader", "Manager"].some((r) => roles.includes(r))
+              ? "admin"
+              : "member",
+          points: Number(member.points || 0),
+          tasks_completed_count: Number(member.tasks_completed_count || 0),
+        },
+        { onConflict: "email" }
+      )
       .select()
       .single();
 
@@ -834,10 +840,15 @@ export default function AnarchyPortal() {
   const isOwnerEmail = ["ysaid558855@gmail.com", "ysaid20006000@gmail.com"].includes(
     currentUserEmail.toLowerCase()
   );
-  const isAdmin = liveDiscordPerms.isDev;
+  const isAdmin =
+    liveDiscordPerms.isDev ||
+    currentMemberRoles.some((r: string) =>
+      ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r)
+    );
 
   const isFamilyMember =
     isAdmin ||
+    liveDiscordPerms.isGang ||
     (currentMember !== null &&
       Number(currentMember.rank_order) < 90 &&
       !(currentMemberRoles.length === 1 && currentMemberRoles[0] === "زائر"));
@@ -1036,7 +1047,6 @@ export default function AnarchyPortal() {
               if (["tasks", "leaderboard"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
               return prev;
             });
-            return;
           }
         } catch {}
       } else {
@@ -1969,7 +1979,7 @@ export default function AnarchyPortal() {
     });
   };
 
-  const handleToggleTaskSubmission = async (task: WeeklyTask, member: Member) => {
+  const handleToggleTaskSubmission = async (task: WeeklyTask, rawMember: Member) => { const member = await ensureMemberInDb(rawMember); if (!member) return;
     const existing = submissions.find(
       (s) => s.task_id === task.id && s.member_id === member.id
     );
@@ -2105,7 +2115,7 @@ export default function AnarchyPortal() {
     const finalRoles = editRolesList.length > 0 ? editRolesList : ["زائر"];
     const matchedConfigs = AVAILABLE_ROLES.filter((r) => finalRoles.includes(r.label));
     const highestConfig =
-      matchedConfigs.sort((a, b) => a.order - b.order)[0] ||
+      [...matchedConfigs].sort((a, b) => a.order - b.order)[0] ||
       AVAILABLE_ROLES[AVAILABLE_ROLES.length - 1];
 
     const hasAdminRole = matchedConfigs.some((r) => r.isAdminRole);
@@ -2118,53 +2128,73 @@ export default function AnarchyPortal() {
         ? editRole
         : "member";
 
+    const rawTarget = members.find((item) => item.id === (editingMemberId || memberId));
+    if (!rawTarget) return;
+
+    const dbTarget = await ensureMemberInDb(rawTarget);
+    if (!dbTarget) return;
+
     const updates = {
+      ic_name: editIcName.trim() || dbTarget.ic_name,
+      discord_username: editDiscordUser.trim() || dbTarget.discord_username || null,
+      kick_or_twitch_url: editKickUrl.trim() || null,
+      youtube_url: editYoutubeUrl.trim() || null,
+      tiktok_url: editTiktokUrl.trim() || null,
+      points: Number(editPoints || 0),
       rank_name: highestConfig.label,
       rank_order: highestConfig.order,
       roles_list: finalRoles,
-      role:
-        finalRoles.includes("Dev") || finalRoles.includes("Boss")
-          ? "super_admin"
-          : hasAdminRole
-          ? "admin"
-          : "member",
+      role: computedSiteRole,
     };
 
     const { error } = await supabase
       .from("members")
       .update(updates)
-      .eq("id", editingMemberId);
+      .eq("id", dbTarget.id);
 
     if (error) {
       alert("خطأ في حفظ التعديلات: " + error.message);
       return;
     }
 
-    const targetMemberObj = members.find((item) => item.id === editingMemberId);
-    if (targetMemberObj?.discord_id) {
-      await fetch("/api/sync-discord-roles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "push",
-          discordId: targetMemberObj.discord_id,
-          rolesList: finalRoles,
-        }),
-      });
+    if (dbTarget.discord_id) {
+      try {
+        await fetch("/api/sync-discord-roles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "push",
+            discordId: dbTarget.discord_id,
+            rolesList: finalRoles,
+          }),
+        });
+      } catch {}
     }
-    await applyLiveDiscordMembers(
-      members
-        .map((m) => (m.id === memberId ? ({ ...m, ...updates } as Member) : m))
-        .sort((a, b) => a.rank_order - b.rank_order)
-    );
+
+    const updatedMembers = members
+      .map((m) =>
+        m.id === rawTarget.id || m.id === dbTarget.id
+          ? ({ ...dbTarget, ...updates } as Member)
+          : m
+      )
+      .sort(
+        (a, b) =>
+          getRoleOrderFromRoles(getMemberRoles(a), Number(a.rank_order || 99)) -
+          getRoleOrderFromRoles(getMemberRoles(b), Number(b.rank_order || 99))
+      );
+
+    setMembers(updatedMembers);
+    if (currentMember && (currentMember.id === rawTarget.id || currentMember.id === dbTarget.id)) {
+      setCurrentMember({ ...dbTarget, ...updates } as Member);
+    }
 
     await sendDiscordEvent({
       title: "✏️ تحديث رولات وبيانات عضو",
       color: 0x3b82f6,
       fields: [
-        { name: "العضو", value: editIcName, inline: true },
+        { name: "العضو", value: updates.ic_name, inline: true },
         { name: "الرولات الحالية", value: finalRoles.join(" + "), inline: true },
-        { name: "النقاط", value: `${editPoints} PTS`, inline: true },
+        { name: "النقاط", value: `${updates.points} PTS`, inline: true },
       ],
     });
 

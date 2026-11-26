@@ -835,6 +835,69 @@ export default function AnarchyPortal() {
     return m.rank_name ? [m.rank_name] : ["زائر"];
   };
 
+  const getRoleBadgeMeta = (roleLabel: string) => {
+    const key = String(roleLabel || "").trim().toLowerCase();
+    switch (key) {
+      case "boss":
+        return {
+          order: 1,
+          symbol: "\u265B",
+          className:
+            "bg-gradient-to-r from-amber-500/30 via-yellow-400/25 to-amber-600/30 text-amber-300 border border-amber-400/65 shadow-[0_0_14px_rgba(251,191,36,0.35)]",
+        };
+      case "co-boss":
+        return {
+          order: 2,
+          symbol: "\u269C",
+          className:
+            "bg-gradient-to-r from-orange-500/25 to-amber-500/20 text-orange-300 border border-orange-400/55 shadow-[0_0_12px_rgba(249,115,22,0.28)]",
+        };
+      case "dev":
+        return {
+          order: 3,
+          symbol: "\u26A1",
+          className:
+            "bg-gradient-to-r from-cyan-500/25 via-sky-500/20 to-blue-600/25 text-cyan-300 border border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.3)]",
+        };
+      case "leader":
+        return {
+          order: 4,
+          symbol: "\u25C6",
+          className:
+            "bg-gradient-to-r from-red-600/35 to-rose-700/25 text-red-300 border border-red-500/60 shadow-[0_0_12px_rgba(239,68,68,0.3)]",
+        };
+      case "manager":
+        return {
+          order: 5,
+          symbol: "\u25C8",
+          className:
+            "bg-gradient-to-r from-purple-600/30 to-violet-600/25 text-purple-300 border border-purple-400/55 shadow-[0_0_10px_rgba(168,85,247,0.25)]",
+        };
+      case "gang":
+        return {
+          order: 6,
+          symbol: "\u2694",
+          className:
+            "bg-gradient-to-r from-zinc-800/95 to-stone-900/95 text-[#f5efe6] border border-[#f5efe6]/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]",
+        };
+      case "streamer":
+        return {
+          order: 7,
+          symbol: "\u25CF",
+          isLiveDot: true,
+          className:
+            "bg-gradient-to-r from-[#53FC18]/20 to-emerald-500/20 text-[#53FC18] border border-[#53FC18]/55 shadow-[0_0_12px_rgba(83,252,24,0.25)]",
+        };
+      default:
+        return {
+          order: 99,
+          symbol: "\u25CB",
+          className:
+            "bg-zinc-900/85 text-zinc-400 border border-zinc-700/50",
+        };
+    }
+  };
+
   const currentMemberRoles = getMemberRoles(currentMember);
 
   const isOwnerEmail = ["ysaid558855@gmail.com", "ysaid20006000@gmail.com"].includes(
@@ -3025,20 +3088,26 @@ export default function AnarchyPortal() {
                                 {isBoss && <Crown className="w-4 h-4 text-amber-400" />}
                               </div>
                               <div className="flex flex-wrap gap-1 mt-1.5">
-                                {memberRoles.map((roleBadge) => (
-                                  <span
-                                    key={roleBadge}
-                                    className={`text-[10px] font-black px-2.5 py-0.5 rounded-lg ${
-                                      roleBadge === "Boss"
-                                        ? "bg-amber-400 text-black"
-                                        : roleBadge === "Streamer"
-                                        ? "bg-[#53FC18]/20 text-[#53FC18] border border-[#53FC18]/40"
-                                        : "bg-[#f5efe6] text-[#120809]"
-                                    }`}
-                                  >
-                                    {roleBadge}
-                                  </span>
-                                ))}
+                                {[...memberRoles]
+  .sort((a, b) => getRoleBadgeMeta(a).order - getRoleBadgeMeta(b).order)
+  .map((roleBadge) => {
+    const badgeMeta = getRoleBadgeMeta(roleBadge);
+    return (
+      <span
+        key={roleBadge}
+        className={`inline-flex items-center gap-1 text-[10px] font-black tracking-wide px-2.5 py-0.5 rounded-lg backdrop-blur-md transition-transform hover:scale-105 ${badgeMeta.className}`}
+      >
+        {badgeMeta.isLiveDot ? (
+          <span className="w-1.5 h-1.5 rounded-full bg-[#53FC18] animate-pulse" />
+        ) : (
+          <span className="text-[9px] leading-none opacity-90">
+            {badgeMeta.symbol}
+          </span>
+        )}
+        <span>{roleBadge}</span>
+      </span>
+    );
+  })}
                               </div>
                             </div>
                           </div>
@@ -5078,9 +5147,10 @@ export default function AnarchyPortal() {
                                                   {m.ic_name}
                                                 </span>
                                               </div>
-                                              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-[#f5efe6]/15 text-[#e6dccb] shrink-0">
-                                                {m.rank_name}
-                                              </span>
+                                              <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md shrink-0 ${getRoleBadgeMeta(m.rank_name).className}`}>
+  <span className="text-[9px]">{getRoleBadgeMeta(m.rank_name).symbol}</span>
+  <span>{m.rank_name}</span>
+</span>
                                             </button>
                                           );
                                         })}
@@ -5857,14 +5927,20 @@ export default function AnarchyPortal() {
                   </p>
 
                   <div className="flex flex-wrap gap-1 pt-0.5">
-                    {getMemberRoles(dossierMember).map((rl) => (
-                      <span
-                        key={rl}
-                        className="text-[10px] font-black bg-[#f5efe6] text-[#120809] px-2.5 py-0.5 rounded-md"
-                      >
-                        {rl}
-                      </span>
-                    ))}
+                    {[...getMemberRoles(dossierMember)]
+  .sort((a, b) => getRoleBadgeMeta(a).order - getRoleBadgeMeta(b).order)
+  .map((rl) => {
+    const badgeMeta = getRoleBadgeMeta(rl);
+    return (
+      <span
+        key={rl}
+        className={`inline-flex items-center gap-1 text-[10px] font-black tracking-wide px-2.5 py-0.5 rounded-md ${badgeMeta.className}`}
+      >
+        <span className="text-[9px] leading-none">{badgeMeta.symbol}</span>
+        <span>{rl}</span>
+      </span>
+    );
+  })}
                   </div>
                 </div>
               </div>

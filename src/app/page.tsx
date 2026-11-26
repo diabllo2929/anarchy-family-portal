@@ -62,6 +62,7 @@ import {
   Play,
   Package,
   Lock,
+  ShoppingBag,
 } from "lucide-react";
 import AnarchyAnimatedLogo from "../components/AnarchyAnimatedLogo";
 
@@ -82,6 +83,7 @@ type TabType =
   | "apply"
   | "leaderboard"
   | "tasks"
+  | "shop"
   | "vault"
   | "weapons"
   | "admin";
@@ -92,6 +94,7 @@ type AdminSubTab =
   | "armory"
   | "vault"
   | "tasks"
+  | "shop"
   | "announce"
   | "content";
 
@@ -591,7 +594,7 @@ export default function AnarchyPortal() {
       .single();
 
     if (error || !created) {
-      alert("تعذر حفظ العضو في قاعدة البيانات: " + (error?.message || "خطأ غير معروف"));
+      pushTacticalToast("تعذر حفظ العضو في قاعدة البيانات: " + (error?.message || "خطأ غير معروف"));
       return null;
     }
 
@@ -723,6 +726,85 @@ export default function AnarchyPortal() {
   const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
   const [dossierMember, setDossierMember] = useState<Member | null>(null);
   const [lockedToast, setLockedToast] = useState<string | null>(null);
+  const [tacticalToasts, setTacticalToasts] = useState<
+    { id: number; title: string; message: string; type: "success" | "error" | "warn" }[]
+  >([]);
+  const [buyingShopItemId, setBuyingShopItemId] = useState<string | null>(null);
+
+  const playNotificationSound = useCallback((type: "success" | "error" | "warn" = "success") => {
+    try {
+      const AudioCtx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      const playTone = (freq: number, start: number, dur: number, wave: OscillatorType, gainVal: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = wave;
+        osc.frequency.setValueAtTime(freq, now + start);
+        gain.gain.setValueAtTime(0.0001, now + start);
+        gain.gain.exponentialRampToValueAtTime(gainVal, now + start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur + 0.02);
+      };
+
+      if (type === "error") {
+        playTone(230, 0, 0.14, "sawtooth", 0.07);
+        playTone(165, 0.12, 0.2, "sawtooth", 0.07);
+      } else if (type === "warn") {
+        playTone(520, 0, 0.11, "triangle", 0.08);
+        playTone(390, 0.11, 0.18, "triangle", 0.08);
+      } else {
+        playTone(587.33, 0, 0.11, "sine", 0.08);
+        playTone(880, 0.09, 0.14, "sine", 0.08);
+        playTone(1174.66, 0.18, 0.24, "triangle", 0.065);
+      }
+    } catch {}
+  }, []);
+
+  const pushTacticalToast = useCallback(
+    (
+      rawMessage: string,
+      forcedType?: "success" | "error" | "warn",
+      customTitle?: string
+    ) => {
+      const msg = String(rawMessage || "").trim();
+      if (!msg) return;
+
+      let resolvedType: "success" | "error" | "warn" = forcedType || "success";
+      if (!forcedType) {
+        if (
+          /خطأ|فشل|تعذر|لا يمكنك|معكش|مقفول|غير معروف|فشلت|أولاً/.test(msg)
+        ) {
+          resolvedType = "error";
+        } else if (/Warn|تحذير|إنذار/.test(msg)) {
+          resolvedType = "warn";
+        }
+      }
+
+      const resolvedTitle =
+        customTitle ||
+        (resolvedType === "error"
+          ? "تنبيه النظام • تعذر التنفيذ"
+          : resolvedType === "warn"
+          ? "ANARCHY DISCIPLINE • إشعار تحذير"
+          : "ANARCHY SYNDICATE • إشعار نظام");
+
+      const id = Date.now() + Math.floor(Math.random() * 10000);
+      setTacticalToasts((prev) => [...prev.slice(-3), { id, title: resolvedTitle, message: msg, type: resolvedType }]);
+      playNotificationSound(resolvedType);
+
+      setTimeout(() => {
+        setTacticalToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4800);
+    },
+    [playNotificationSound]
+  );
 
   // حالة النافبار المنسدلة والموبايل
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -908,6 +990,7 @@ const TAB_ORDER: TabType[] = [
     "apply",
     "leaderboard",
     "tasks",
+    "shop",
     "vault",
     "weapons",
     "admin",
@@ -981,8 +1064,7 @@ const TAB_ORDER: TabType[] = [
     isAdmin || isFamilyMember || currentMemberRoles.includes("Gang");
 
   const showLockedNotice = (tabLabel: string) => {
-    setLockedToast(`قسم "${tabLabel}" مقفول 🔒 — متاح للإدارة والقيادة فقط`);
-    setTimeout(() => setLockedToast(null), 3200);
+    pushTacticalToast(`قسم "${tabLabel}" مقفول 🔒 — متاح للإدارة والقيادة فقط`, "error", "صلاحيات مقيدة");
   };
 
   const fetchDiscordPresence = useCallback(async () => {
@@ -1176,7 +1258,7 @@ const TAB_ORDER: TabType[] = [
             }
             setActiveTab((prev) => {
               if (["admin", "vault", "weapons"].includes(prev) && !perms.isDev) return "home";
-              if (prev === "tasks" && !perms.isDev && !perms.isGang) return "home";
+              if (["tasks", "shop"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
               return prev;
             });
           }
@@ -1203,7 +1285,7 @@ const TAB_ORDER: TabType[] = [
         freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
       setActiveTab((prev) => {
         if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
-        if (prev === "tasks" && !stillFamily) return "home";
+        if (["tasks", "shop"].includes(prev) && !stillFamily) return "home";
         return prev;
       });
       if (me?.discord_username && !appDiscord) {
@@ -1308,7 +1390,7 @@ const TAB_ORDER: TabType[] = [
     e.preventDefault();
     if (!annTitle.trim() || !annMessage.trim()) return;
     if (annChannels.length === 0) {
-      alert("اختر تشانل واحدة على الأقل للإرسال");
+      pushTacticalToast("اختر تشانل واحدة على الأقل للإرسال");
       return;
     }
     setSendingAnn(true);
@@ -1328,7 +1410,7 @@ const TAB_ORDER: TabType[] = [
       });
       const data = await res.json();
       if (!res.ok) {
-        alert("فشل الإرسال: " + (data.error || "خطأ غير معروف"));
+        pushTacticalToast("فشل الإرسال: " + (data.error || "خطأ غير معروف"));
       } else {
         const sentNames = (data.succeeded || [])
           .map((s: any) => s.label)
@@ -1336,13 +1418,13 @@ const TAB_ORDER: TabType[] = [
         const failedNames = (data.failed || [])
           .map((f: any) => `${f.label} (${f.error})`)
           .join("\n• ");
-        alert(
+        pushTacticalToast(
           `تم إرسال الإعلان بنجاح إلى:\n• ${sentNames}` +
             (failedNames ? `\n\nفشل في:\n• ${failedNames}` : "")
         );
       }
     } catch (err: any) {
-      alert("حدث خطأ: " + err.message);
+      pushTacticalToast("حدث خطأ: " + err.message);
     } finally {
       setSendingAnn(false);
     }
@@ -1384,7 +1466,7 @@ const TAB_ORDER: TabType[] = [
   const handleUploadBackgroundFromDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bgFile) {
-      alert("اختر صورة الخلفية من جهازك أولاً");
+      pushTacticalToast("اختر صورة الخلفية من جهازك أولاً");
       return;
     }
     setUploadingBg(true);
@@ -1415,9 +1497,9 @@ const TAB_ORDER: TabType[] = [
         color: 0xa855f7,
       });
 
-      alert("تم تحديث خلفية الموقع والهوم بنجاح! 🎉");
+      pushTacticalToast("تم تحديث خلفية الموقع والهوم بنجاح! 🎉");
     } catch (err: any) {
-      alert("خطأ في رفع الخلفية: " + err.message);
+      pushTacticalToast("خطأ في رفع الخلفية: " + err.message);
     } finally {
       setUploadingBg(false);
     }
@@ -1450,7 +1532,7 @@ const TAB_ORDER: TabType[] = [
 
     if (error) {
       setAppSubmitting(false);
-      alert("حدث خطأ أثناء إرسال الطلب: " + error.message);
+      pushTacticalToast("حدث خطأ أثناء إرسال الطلب: " + error.message);
       return;
     }
 
@@ -1483,7 +1565,7 @@ const TAB_ORDER: TabType[] = [
     setAppHours("");
     setAppPrevGangs("");
     setAppWhy("");
-    alert("تم إرسال طلبك بنجاح! سيظهر الآن في صفحة الأدمن وتم إرساله إلى الديسكورد.");
+    pushTacticalToast("تم إرسال طلبك بنجاح! سيظهر الآن في صفحة الأدمن وتم إرساله إلى الديسكورد.");
   };
 
   const handleAddDirectMember = async (e: React.FormEvent) => {
@@ -1517,7 +1599,7 @@ const TAB_ORDER: TabType[] = [
       setNewMemberEmail("");
       setNewMemberIcName("");
       fetchAllData();
-      alert("تم ضم العضو للعيلة بنجاح!");
+      pushTacticalToast("تم ضم العضو للعيلة بنجاح!");
     }
   };
 
@@ -1548,9 +1630,171 @@ const TAB_ORDER: TabType[] = [
     }
   };
 
+  const BLACK_MARKET_ITEMS = [
+    {
+      id: "remove_warn",
+      title: "إزالة Warn نشط",
+      subtitle: "مسح أقدم تحذير مسجل عليك وتخفيض رول التحذير في الديسكورد تلقائياً",
+      cost: 10,
+      badge: "DISCIPLINE CLEAR",
+      accent: "amber",
+    },
+    {
+      id: "task_exemption",
+      title: "إعفاء من تاسك الأسبوع",
+      subtitle: "تصريح إعفاء رسمي من تسليم التاسك الأسبوعي بدون خصم نقط",
+      cost: 15,
+      badge: "WEEKLY PASS",
+      accent: "cyan",
+    },
+    {
+      id: "extra_weapon",
+      title: "سلاح إضافي من الخزنة",
+      subtitle: "طلب صرف قطعة سلاح إضافية من مخزن العيلة بواسطة القيادة",
+      cost: 20,
+      badge: "ARMORY DROP",
+      accent: "crimson",
+    },
+  ];
+
+  const handlePurchaseShopItem = async (item: (typeof BLACK_MARKET_ITEMS)[number]) => {
+    if (!currentMember) {
+      pushTacticalToast("يجب تسجيل الدخول بحساب عضو في العيلة أولاً.", "error");
+      return;
+    }
+
+    const currentPoints = Number(currentMember.points || 0);
+    if (currentPoints < item.cost) {
+      pushTacticalToast(
+        `معكش نقط كفاية للشراء! رصيدك الحالي (${currentPoints}) نقطة والمطلوب (${item.cost}) نقطة.`,
+        "error",
+        "رصيد غير كافٍ"
+      );
+      return;
+    }
+
+    const myActiveWarns = warns
+      .filter((w) => w.member_id === currentMember.id)
+      .sort(
+        (a, b) =>
+          new Date(a.created_at || 0).getTime() -
+          new Date(b.created_at || 0).getTime()
+      );
+
+    if (item.id === "remove_warn" && myActiveWarns.length === 0) {
+      pushTacticalToast(
+        "معندكش أي Warn نشط حالياً عشان تشيله!",
+        "warn",
+        "لا توجد تحذيرات"
+      );
+      return;
+    }
+
+    setBuyingShopItemId(item.id);
+    try {
+      const dbMember = await ensureMemberInDb(currentMember);
+      if (!dbMember) return;
+
+      const updatedPoints = Number(dbMember.points || 0) - item.cost;
+      const { error: ptsErr } = await supabase
+        .from("members")
+        .update({ points: updatedPoints })
+        .eq("id", dbMember.id);
+
+      if (ptsErr) {
+        pushTacticalToast("تعذر خصم النقط: " + ptsErr.message, "error");
+        return;
+      }
+
+      await applyLiveDiscordMembers(
+        members.map((m) =>
+          m.id === dbMember.id ? { ...m, points: updatedPoints } : m
+        )
+      );
+
+      if (item.id === "remove_warn") {
+        const oldestWarn = myActiveWarns[0];
+        await supabase.from("member_warns").delete().eq("id", oldestWarn.id);
+
+        const remainingAll = warns.filter((w) => w.id !== oldestWarn.id);
+        const memberRemaining = remainingAll
+          .filter((w) => w.member_id === dbMember.id)
+          .sort(
+            (a, b) =>
+              new Date(a.created_at || 0).getTime() -
+              new Date(b.created_at || 0).getTime()
+          );
+
+        for (let i = 0; i < memberRemaining.length; i++) {
+          const expectedNum = i + 1;
+          if (Number(memberRemaining[i].warn_number) !== expectedNum) {
+            memberRemaining[i] = { ...memberRemaining[i], warn_number: expectedNum };
+            await supabase
+              .from("member_warns")
+              .update({ warn_number: expectedNum })
+              .eq("id", memberRemaining[i].id);
+          }
+        }
+
+        const renumberedMap = new Map(memberRemaining.map((w) => [w.id, w]));
+        setWarns(remainingAll.map((w) => renumberedMap.get(w.id) || w));
+
+        await sendDiscordEvent({
+          category: "warn_sync",
+          title: "🛒 شراء إزالة Warn من المتجر",
+          color: 0xf59e0b,
+          targetDiscordId: dbMember.discord_id,
+          targetDiscordUsername: dbMember.discord_username,
+          targetIcName: dbMember.ic_name,
+          warnNumber: memberRemaining.length,
+          fields: [
+            { name: "العضو", value: dbMember.ic_name, inline: true },
+            { name: "التكلفة", value: `${item.cost} نقطة`, inline: true },
+            { name: "الرصيد المتبقي", value: `${updatedPoints} نقطة`, inline: true },
+          ],
+        });
+
+        pushTacticalToast(
+          `تم شراء "${item.title}" بنجاح! اتخصم ${item.cost} نقط واتشال منك الـ Warn وتحدث رولك في الديسكورد.`,
+          "success",
+          "تمت عملية الشراء ✓"
+        );
+      } else {
+        await sendDiscordEvent({
+          title: `🛒 طلب جديد من متجر النقاط • ${item.title}`,
+          description: `قام **${dbMember.ic_name}** باستبدال نقاطه للحصول على مكافأة من متجر العيلة.`,
+          color: 0x10b981,
+          fields: [
+            {
+              name: "العضو",
+              value: dbMember.discord_id
+                ? `<@${dbMember.discord_id}> (${dbMember.ic_name})`
+                : dbMember.ic_name,
+              inline: true,
+            },
+            { name: "العنصر المطلوب", value: item.title, inline: true },
+            {
+              name: "الخصم / المتبقي",
+              value: `-${item.cost} نقطة (المتبقي: ${updatedPoints})`,
+              inline: true,
+            },
+          ],
+        });
+
+        pushTacticalToast(
+          `تم شراء "${item.title}" بنجاح! اتخصم ${item.cost} نقط ووصل إشعار للإدارة لتسليمك فوراً.`,
+          "success",
+          "تمت عملية الشراء ✓"
+        );
+      }
+    } finally {
+      setBuyingShopItemId(null);
+    }
+  };
+
   const handleIssueWarn = async (rawMember: Member) => { const member = await ensureMemberInDb(rawMember); if (!member) return;
     if (!warnReason.trim()) {
-      alert("اكتب سبب الـ Warn أولاً");
+      pushTacticalToast("اكتب سبب الـ Warn أولاً");
       return;
     }
 
@@ -1571,11 +1815,12 @@ const TAB_ORDER: TabType[] = [
       .single();
 
     if (warnErr) {
-      alert("خطأ في تسجيل الـ Warn: " + warnErr.message);
+      pushTacticalToast("خطأ في تسجيل الـ Warn: " + warnErr.message);
       return;
     }
 
-    const deductedPoints = Number(member.points || 0) - 3;
+    const warnPenalty = nextWarnNumber === 1 ? 5 : nextWarnNumber === 2 ? 10 : 15;
+    const deductedPoints = Number(member.points || 0) - warnPenalty;
     await supabase
       .from("members")
       .update({ points: deductedPoints })
@@ -1601,7 +1846,7 @@ const TAB_ORDER: TabType[] = [
 
     setWarnMemberId(null);
     setWarnReason("");
-    alert(
+    pushTacticalToast(
       `تم تسجيل Warn #${nextWarnNumber} على ${member.ic_name}!\n` +
         `• رسالة الديسكورد: ${
           discordResult?.webhookOk ? "وصلت ✓" : discordResult?.webhookError || "فشلت"
@@ -1684,7 +1929,7 @@ const TAB_ORDER: TabType[] = [
       member.id === currentMember?.id ||
       member.email.toLowerCase() === currentUserEmail.toLowerCase()
     ) {
-      alert("لا يمكنك حذف حسابك الشخصي من البوابة.");
+      pushTacticalToast("لا يمكنك حذف حسابك الشخصي من البوابة.");
       return;
     }
 
@@ -1700,7 +1945,7 @@ const TAB_ORDER: TabType[] = [
 
     const { error } = await supabase.from("members").delete().eq("id", member.id);
     if (error) {
-      alert("حدث خطأ أثناء حذف العضو: " + error.message);
+      pushTacticalToast("حدث خطأ أثناء حذف العضو: " + error.message);
       return;
     }
 
@@ -1721,7 +1966,7 @@ const TAB_ORDER: TabType[] = [
       ],
     });
 
-    alert(`تم حذف "${member.ic_name}" من البوابة بنجاح.`);
+    pushTacticalToast(`تم حذف "${member.ic_name}" من البوابة بنجاح.`);
   };
 
   const handleAddWeaponLog = async (e: React.FormEvent) => {
@@ -1742,7 +1987,7 @@ const TAB_ORDER: TabType[] = [
       .single();
 
     if (error) {
-      alert("حدث خطأ أثناء التسجيل: " + error.message);
+      pushTacticalToast("حدث خطأ أثناء التسجيل: " + error.message);
       return;
     }
     if (data) {
@@ -1766,7 +2011,7 @@ const TAB_ORDER: TabType[] = [
       setNewLogWeapon("");
       setNewLogQty(1);
       setNewLogNotes("");
-      alert("تم تسجيل الحركة في Logs الخزنة والسلاح والديسكورد!");
+      pushTacticalToast("تم تسجيل الحركة في Logs الخزنة والسلاح والديسكورد!");
     }
   };
 
@@ -1792,7 +2037,7 @@ const TAB_ORDER: TabType[] = [
 
     const { error } = await supabase.from("weapon_logs").update(updates).eq("id", logId);
     if (error) {
-      alert("خطأ في تعديل اللوج: " + error.message);
+      pushTacticalToast("خطأ في تعديل اللوج: " + error.message);
       return;
     }
 
@@ -1825,7 +2070,7 @@ const TAB_ORDER: TabType[] = [
 
     const { error } = await supabase.from("weapon_logs").delete().eq("id", log.id);
     if (error) {
-      alert("خطأ في حذف اللوج: " + error.message);
+      pushTacticalToast("خطأ في حذف اللوج: " + error.message);
       return;
     }
 
@@ -1927,9 +2172,9 @@ const TAB_ORDER: TabType[] = [
       setVaultQty(1);
       setVaultNotes("");
       setVaultPhotoFile(null);
-      alert("تم إضافة الصنف/السلاح وصورته إلى الخزنة بنجاح!");
+      pushTacticalToast("تم إضافة الصنف/السلاح وصورته إلى الخزنة بنجاح!");
     } catch (err: any) {
-      alert("خطأ أثناء حفظ عنصر الخزنة: " + err.message);
+      pushTacticalToast("خطأ أثناء حفظ عنصر الخزنة: " + err.message);
     } finally {
       setSavingVaultItem(false);
     }
@@ -1977,17 +2222,17 @@ const TAB_ORDER: TabType[] = [
   const handleUploadPhotoFromDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canUploadGalleryMedia) {
-      alert("النشر في معرض العيلة متاح لأعضاء العيلة أو من يملك رول Gang");
+      pushTacticalToast("النشر في معرض العيلة متاح لأعضاء العيلة أو من يملك رول Gang");
       return;
     }
 
     if (mediaKind === "image" && !photoFile) {
-      alert("اختر صورة من جهازك أولاً");
+      pushTacticalToast("اختر صورة من جهازك أولاً");
       return;
     }
 
     if (mediaKind === "video" && !videoUrl.trim()) {
-      alert("ضع رابط الفيديو أولاً");
+      pushTacticalToast("ضع رابط الفيديو أولاً");
       return;
     }
 
@@ -2054,14 +2299,14 @@ const TAB_ORDER: TabType[] = [
         setVideoUrl("");
         setVideoThumbUrl("");
         setPhotoFile(null);
-        alert(
+        pushTacticalToast(
           mediaKind === "video"
             ? "تم نشر الفيديو بصورته والرابط المباشر في معرض العيلة! 🎬"
             : "تم رفع الصورة ونشرها في قسم صور العيلة بنجاح!"
         );
       }
     } catch (err: any) {
-      alert("فشل النشر: " + err.message);
+      pushTacticalToast("فشل النشر: " + err.message);
     } finally {
       setUploadingPhoto(false);
     }
@@ -2105,7 +2350,7 @@ const TAB_ORDER: TabType[] = [
     });
 
     fetchAllData();
-    alert("تم حفظ النبذة والقوانين بنجاح!");
+    pushTacticalToast("تم حفظ النبذة والقوانين بنجاح!");
   };
 
   const handleAddWeeklyTask = async (e: React.FormEvent) => {
@@ -2142,7 +2387,7 @@ const TAB_ORDER: TabType[] = [
     const { error } = await supabase.from("weekly_tasks").delete().eq("id", task.id);
 
     if (error) {
-      alert("حدث خطأ أثناء حذف التاسك: " + error.message);
+      pushTacticalToast("حدث خطأ أثناء حذف التاسك: " + error.message);
       return;
     }
 
@@ -2330,7 +2575,7 @@ const TAB_ORDER: TabType[] = [
       .eq("id", dbTarget.id);
 
     if (error) {
-      alert("خطأ في حفظ التعديلات: " + error.message);
+      pushTacticalToast("خطأ في حفظ التعديلات: " + error.message);
       return;
     }
 
@@ -2441,6 +2686,7 @@ const TAB_ORDER: TabType[] = [
     { id: "apply", label: "التقديم", icon: UserPlus },
     { id: "leaderboard", label: "الليدربورد", icon: Trophy },
     { id: "tasks", label: "التاسك", icon: CheckSquare, familyOnly: true },
+    { id: "shop", label: "المتجر", icon: ShoppingBag, familyOnly: true },
     { id: "vault", label: "الخزنة", icon: Vault, adminOnly: true },
     { id: "weapons", label: "لوج السلاح", icon: Crosshair, adminOnly: true },
   ];
@@ -2482,20 +2728,89 @@ const TAB_ORDER: TabType[] = [
         }`}
       />
 
-      {/* تنبيه عند الضغط على تاب مقفول للأدمن */}
-      <AnimatePresence>
-        {lockedToast && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-[#180508]/95 border border-red-500/60 text-xs font-black text-amber-200 shadow-[0_15px_40px_rgba(0,0,0,0.9)] flex items-center gap-2.5 backdrop-blur-xl"
-          >
-            <Lock className="w-4 h-4 text-red-400 shrink-0" />
-            <span>{lockedToast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* نظام الإشعارات التكتيكية المتكامل بالصوت */}
+      <div className="fixed top-20 left-4 sm:left-6 z-[90] flex flex-col gap-2.5 w-[calc(100vw-2rem)] max-w-sm pointer-events-none">
+        <AnimatePresence>
+          {tacticalToasts.map((toast) => {
+            const isErr = toast.type === "error";
+            const isWarn = toast.type === "warn";
+            return (
+              <motion.div
+                key={toast.id}
+                initial={{ opacity: 0, x: -35, scale: 0.94 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -25, scale: 0.94 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                className={`pointer-events-auto relative overflow-hidden rounded-2xl p-4 backdrop-blur-2xl border shadow-[0_20px_50px_rgba(0,0,0,0.92)] ${
+                  isErr
+                    ? "bg-[#1a0508]/95 border-red-500/65 text-red-100"
+                    : isWarn
+                    ? "bg-[#1a1104]/95 border-amber-500/65 text-amber-100"
+                    : "bg-[#091410]/95 border-emerald-500/60 text-emerald-50"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                      isErr
+                        ? "bg-red-500/20 border-red-500/40 text-red-400"
+                        : isWarn
+                        ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+                        : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                    }`}
+                  >
+                    {isErr ? (
+                      <XCircle className="w-5 h-5" />
+                    ) : isWarn ? (
+                      <AlertTriangle className="w-5 h-5" />
+                    ) : (
+                      <CheckCircle2 className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-[10px] font-black tracking-wider uppercase ${
+                        isErr
+                          ? "text-red-400"
+                          : isWarn
+                          ? "text-amber-400"
+                          : "text-emerald-400"
+                      }`}
+                    >
+                      {toast.title}
+                    </p>
+                    <p className="text-xs font-bold text-white/95 leading-relaxed whitespace-pre-line mt-0.5">
+                      {toast.message}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTacticalToasts((prev) => prev.filter((t) => t.id !== toast.id))
+                    }
+                    className="text-white/40 hover:text-white cursor-pointer p-0.5"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <motion.div
+                  initial={{ scaleX: 1 }}
+                  animate={{ scaleX: 0 }}
+                  transition={{ duration: 4.8, ease: "linear" }}
+                  style={{ transformOrigin: "right" }}
+                  className={`absolute bottom-0 left-0 right-0 h-[2px] ${
+                    isErr
+                      ? "bg-red-500"
+                      : isWarn
+                      ? "bg-amber-400"
+                      : "bg-emerald-400"
+                  }`}
+                />
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
 
       {/* 2. الهيدر العلوي الجبار */}
       <header className="sticky top-3 z-40 max-w-[1460px] mx-auto px-3 sm:px-6 overflow-visible">
@@ -4216,6 +4531,116 @@ const TAB_ORDER: TabType[] = [
             )}
 
             {/* ============================================================= */}
+            {/* 8A. متجر النقاط (SYNDICATE BLACK MARKET - للجانج والديف)       */}
+            {/* ============================================================= */}
+            {activeTab === "shop" && isFamilyMember && (
+              <div className="space-y-6">
+                <div className="anarchy-glass rounded-[34px] p-7 sm:p-9 flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
+                  <div className="pointer-events-none absolute -top-24 -left-24 w-64 h-64 rounded-full bg-red-600/15 blur-3xl" />
+                  <div>
+                    <span className="text-[11px] font-black text-red-400 tracking-[0.25em] uppercase">
+                      ANARCHY SYNDICATE • BLACK MARKET
+                    </span>
+                    <h2 className="text-2xl sm:text-4xl font-black text-white mt-1 flex items-center gap-3">
+                      <ShoppingBag className="w-8 h-8 text-amber-400" />
+                      <span>متجر النقاط والمكافآت</span>
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[#e6dccb]/75 mt-1.5">
+                      استبدل نقط نشاطك في العيلة بمكافآت فورية أو إزالة تحذيراتك
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-4 px-5 py-3.5 rounded-2xl bg-black/75 border border-amber-400/40 shadow-[0_0_25px_rgba(251,191,36,0.15)] shrink-0">
+                    <div>
+                      <span className="block text-[10px] font-black text-amber-300/80 uppercase tracking-wider">
+                        رصيدك الحالي
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-black text-amber-400">
+                        {Number(currentMember?.points || 0)}{" "}
+                        <span className="text-xs text-[#f5efe6]/70">نقطة</span>
+                      </span>
+                    </div>
+                    <div className="h-9 w-[1px] bg-white/10" />
+                    <div>
+                      <span className="block text-[10px] font-black text-red-400/80 uppercase tracking-wider">
+                        تحذيراتك
+                      </span>
+                      <span className="text-xl font-black text-white">
+                        {warns.filter((w) => w.member_id === currentMember?.id).length}{" "}
+                        <span className="text-xs text-zinc-400">Warn</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {BLACK_MARKET_ITEMS.map((item) => {
+                    const userPts = Number(currentMember?.points || 0);
+                    const canAfford = userPts >= item.cost;
+                    const myWarnsCount = warns.filter(
+                      (w) => w.member_id === currentMember?.id
+                    ).length;
+                    const noWarnsToClear = item.id === "remove_warn" && myWarnsCount === 0;
+                    const isBuying = buyingShopItemId === item.id;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="anarchy-glass rounded-[28px] p-6 flex flex-col justify-between border border-white/12 hover:border-red-500/45 transition-all relative overflow-hidden group"
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-black tracking-[0.2em] px-3 py-1 rounded-full bg-white/5 border border-white/15 text-[#e6dccb]">
+                              {item.badge}
+                            </span>
+                            <span className="px-3.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/45 text-amber-300 text-xs font-black">
+                              {item.cost} Points
+                            </span>
+                          </div>
+
+                          <div className="pt-1">
+                            <h3 className="text-xl font-black text-white group-hover:text-amber-300 transition-colors">
+                              {item.title}
+                            </h3>
+                            <p className="text-xs text-[#e6dccb]/75 leading-relaxed mt-2">
+                              {item.subtitle}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-6 mt-6 border-t border-white/10">
+                          <button
+                            type="button"
+                            disabled={isBuying}
+                            onClick={() => handlePurchaseShopItem(item)}
+                            className={`w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                              !canAfford || noWarnsToClear
+                                ? "bg-zinc-900/90 border border-white/15 text-zinc-400 hover:border-red-500/40 hover:text-red-300"
+                                : "btn-cream-crimson shadow-[0_10px_28px_rgba(220,38,38,0.35)] hover:scale-[1.01]"
+                            }`}
+                          >
+                            {isBuying ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ShoppingBag className="w-4 h-4" />
+                            )}
+                            <span>
+                              {noWarnsToClear
+                                ? "لا يوجد Warn لإزالته"
+                                : !canAfford
+                                ? `تحتاج ${item.cost - userPts} نقطة إضافية`
+                                : `شراء الآن (${item.cost} نقطة)`}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================= */}
             {/* 8B. قسم الخزنة (تبع الأدمن فقط — مقفول للجانج ومخفي للزائر)   */}
             {/* ============================================================= */}
             {activeTab === "vault" && isAdmin && (
@@ -4773,9 +5198,9 @@ const TAB_ORDER: TabType[] = [
                                 const data = await res.json();
                                 if (res.ok) {
                                   await fetchAllData();
-                                  alert(`تم تحديث صور الديسكورد لـ (${data.updatedCount}) عضو بنجاح! 🎉`);
+                                  pushTacticalToast(`تم تحديث صور الديسكورد لـ (${data.updatedCount}) عضو بنجاح! 🎉`);
                                 } else {
-                                  alert("فشل المزامنة: " + (data.error || "تأكد من صلاحية البوت"));
+                                  pushTacticalToast("فشل المزامنة: " + (data.error || "تأكد من صلاحية البوت"));
                                 }
                               }}
                               className="btn-cream-ghost px-4 py-2 rounded-xl text-xs font-black text-amber-300 hover:text-white cursor-pointer"
@@ -4931,14 +5356,14 @@ const TAB_ORDER: TabType[] = [
                                       type="text"
                                       value={warnReason}
                                       onChange={(e) => setWarnReason(e.target.value)}
-                                      placeholder={`سبب الـ Warn رقم #${memberWarns.length + 1} (سيخصم 3 نقط ويبعت Warn في السيرفر)...`}
+                                      placeholder={`سبب الـ Warn رقم #${memberWarns.length + 1} (سيخصم ${(memberWarns.length + 1) === 1 ? 5 : (memberWarns.length + 1) === 2 ? 10 : 15} نقط ويبعت Warn)...`}
                                       className="flex-1 bg-black/75 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                                     />
                                     <button
                                       onClick={() => handleIssueWarn(m)}
                                       className="btn-cream-crimson px-4 py-2 rounded-xl text-xs font-black cursor-pointer shrink-0"
                                     >
-                                      تأكيد Warn (-3 نقط + Discord)
+                                      تأكيد Warn (-{(memberWarns.length + 1) === 1 ? 5 : (memberWarns.length + 1) === 2 ? 10 : 15} نقط + Discord)
                                     </button>
                                   </div>
                                 )}

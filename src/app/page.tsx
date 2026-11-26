@@ -1058,7 +1058,7 @@ export default function AnarchyPortal() {
           }
         } catch {}
       } else {
-        resolvedIsDev = Boolean(perms.isDev); resolvedIsGang = Boolean(perms.isGang); setLiveDiscordPerms({ isDev: false, isGang: false });
+        setLiveDiscordPerms({ isDev: false, isGang: false });
       }
       // auto-kick-unauthorized-tab
       const freshRoles = me

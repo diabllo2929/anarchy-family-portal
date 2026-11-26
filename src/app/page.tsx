@@ -898,6 +898,33 @@ export default function AnarchyPortal() {
     }
   };
 
+  const TAB_TELEMETRY: Record<TabType, { code: string; label: string }> = {
+    home: { code: "SEC-01", label: "SYNDICATE HQ" },
+    roster: { code: "SEC-02", label: "FAMILY ROSTER" },
+    gallery: { code: "SEC-03", label: "VISUAL ARCHIVE" },
+    streamers: { code: "SEC-04", label: "BROADCAST UNIT" },
+    about: { code: "SEC-05", label: "SYNDICATE LORE" },
+    rules: { code: "SEC-06", label: "CODE OF CONDUCT" },
+    apply: { code: "SEC-07", label: "RECRUITMENT GATE" },
+    leaderboard: { code: "SEC-08", label: "RANKINGS & PTS" },
+    tasks: { code: "SEC-09", label: "ACTIVE OPERATIONS" },
+    vault: { code: "SEC-10", label: "SYNDICATE VAULT" },
+    weapons: { code: "SEC-11", label: "ARMORY LOGS" },
+    admin: { code: "SEC-12", label: "HIGH COMMAND" },
+  };
+
+  const [scanActive, setScanActive] = useState(false);
+  const [scanPulseId, setScanPulseId] = useState(0);
+
+  useEffect(() => {
+    setScanPulseId((prev) => prev + 1);
+    setScanActive(true);
+    const timer = setTimeout(() => {
+      setScanActive(false);
+    }, 620);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
+
   const currentMemberRoles = getMemberRoles(currentMember);
 
   const isOwnerEmail = ["ysaid558855@gmail.com", "ysaid20006000@gmail.com"].includes(
@@ -2863,14 +2890,89 @@ export default function AnarchyPortal() {
       </div>
 
       {/* 3. محتوى الصفحات */}
+      {/* Tactical Scanline Transition HUD */}
+      <AnimatePresence>
+        {scanActive && (
+          <motion.div
+            key={`scanline-${activeTab}-${scanPulseId}`}
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-[70] pointer-events-none overflow-hidden"
+          >
+            {/* نبضة شبكة المسح البصري */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 0.65, 0] }}
+              transition={{ duration: 0.52, ease: "easeOut" }}
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(0deg, rgba(220,38,38,0.08) 0px, rgba(220,38,38,0.08) 1px, transparent 1px, transparent 4px)",
+              }}
+              className="absolute inset-0"
+            />
+
+            {/* شعاع الليزر الرئيسي الهابط مع الذيل الضوئي */}
+            <motion.div
+              initial={{ y: "-14vh", opacity: 0.95 }}
+              animate={{ y: "112vh", opacity: [0.95, 1, 0.2] }}
+              transition={{ duration: 0.54, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute left-0 right-0 h-24 bg-gradient-to-t from-red-600/25 via-red-500/5 to-transparent"
+            >
+              <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_22px_rgba(239,68,68,0.95),0_0_8px_rgba(255,255,255,0.85)]" />
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1/3 h-[2px] bg-gradient-to-r from-transparent via-[#fff5f5] to-transparent" />
+            </motion.div>
+
+            {/* خط معايرة عكسي سريع */}
+            <motion.div
+              initial={{ y: "105vh", opacity: 0.7 }}
+              animate={{ y: "-8vh", opacity: [0.7, 0.85, 0] }}
+              transition={{ duration: 0.44, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#f5efe6]/70 to-transparent shadow-[0_0_12px_rgba(245,239,230,0.6)]"
+            />
+
+            {/* زوايا التصويب التكتيكية في أركان الشاشة */}
+            <motion.div
+              initial={{ scale: 1.05, opacity: 0 }}
+              animate={{ scale: 1, opacity: [0, 0.9, 0] }}
+              transition={{ duration: 0.55, ease: "easeOut" }}
+              className="absolute inset-4 sm:inset-7"
+            >
+              <span className="absolute top-0 left-0 w-7 h-7 border-t-2 border-l-2 border-red-500/80 rounded-tl-md" />
+              <span className="absolute top-0 right-0 w-7 h-7 border-t-2 border-r-2 border-red-500/80 rounded-tr-md" />
+              <span className="absolute bottom-0 left-0 w-7 h-7 border-b-2 border-l-2 border-red-500/80 rounded-bl-md" />
+              <span className="absolute bottom-0 right-0 w-7 h-7 border-b-2 border-r-2 border-red-500/80 rounded-br-md" />
+            </motion.div>
+
+            {/* شارة تعريف القطاع (Sector HUD Telemetry Pill) */}
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.94 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: [-10, 0, 0, -6],
+                scale: [0.94, 1, 1, 0.97],
+              }}
+              transition={{ duration: 0.58, times: [0, 0.2, 0.75, 1], ease: "easeOut" }}
+              className="absolute top-20 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#090304]/90 backdrop-blur-xl border border-red-500/50 shadow-[0_0_28px_rgba(220,38,38,0.45)] flex items-center gap-2.5 text-[10px] font-black tracking-[0.24em] uppercase whitespace-nowrap"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+              <span className="text-red-400">{TAB_TELEMETRY[activeTab]?.code}</span>
+              <span className="text-white/30">//</span>
+              <span className="text-[#f5efe6]">{TAB_TELEMETRY[activeTab]?.label}</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main className="relative z-10 max-w-[1400px] mx-auto px-4 sm:px-6 pt-6 pb-24">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.28 }}
+            initial={{ opacity: 0, y: 18, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.99 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
           >
             {/* ============================================================= */}
             {/* 0. صفحة HOME                                                   */}

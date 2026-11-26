@@ -1176,7 +1176,7 @@ const TAB_ORDER: TabType[] = [
             }
             setActiveTab((prev) => {
               if (["admin", "vault", "weapons"].includes(prev) && !perms.isDev) return "home";
-              if (["tasks", "leaderboard"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
+              if (prev === "tasks" && !perms.isDev && !perms.isGang) return "home";
               return prev;
             });
           }
@@ -1203,7 +1203,7 @@ const TAB_ORDER: TabType[] = [
         freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
       setActiveTab((prev) => {
         if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
-        if (["tasks", "leaderboard"].includes(prev) && !stillFamily) return "home";
+        if (prev === "tasks" && !stillFamily) return "home";
         return prev;
       });
       if (me?.discord_username && !appDiscord) {
@@ -2439,7 +2439,7 @@ const TAB_ORDER: TabType[] = [
     { id: "about", label: "عن العيلة", icon: BookOpen },
     { id: "rules", label: "القوانين", icon: Scale },
     { id: "apply", label: "التقديم", icon: UserPlus },
-    { id: "leaderboard", label: "الليدربورد", icon: Trophy, familyOnly: true },
+    { id: "leaderboard", label: "الليدربورد", icon: Trophy },
     { id: "tasks", label: "التاسك", icon: CheckSquare, familyOnly: true },
     { id: "vault", label: "الخزنة", icon: Vault, adminOnly: true },
     { id: "weapons", label: "لوج السلاح", icon: Crosshair, adminOnly: true },
@@ -4029,7 +4029,7 @@ const TAB_ORDER: TabType[] = [
             {/* ============================================================= */}
             {/* 7. الليدربورد                                                 */}
             {/* ============================================================= */}
-            {activeTab === "leaderboard" && isFamilyMember && (
+            {activeTab === "leaderboard" && (
               <div className="anarchy-glass rounded-[34px] p-7 sm:p-9">
                 <div className="mb-7">
                   <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">

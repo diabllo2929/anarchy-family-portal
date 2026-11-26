@@ -20,7 +20,13 @@ export async function middleware(request: NextRequest) {
             request,
           })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, { ...options, maxAge: 60 * 60 * 24 * 365 })
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              maxAge: 60 * 60 * 24 * 365,
+              path: '/',
+              sameSite: 'lax',
+              secure: true,
+            })
           )
         },
       },
@@ -31,15 +37,19 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // لو مش مسجل دخول وبيفتح أي صفحة غير /login يحوله لصفحة الدخول
-  if (!user && !request.nextUrl.pathname.startsWith('/login') && !request.nextUrl.pathname.startsWith('/api')) {
+  const path = request.nextUrl.pathname
+  if (
+    !user &&
+    !path.startsWith('/login') &&
+    !path.startsWith('/auth') &&
+    !path.startsWith('/api')
+  ) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // لو مسجل دخول وبيفتح /login يحوله للموقع الرئيسي مباشرة
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (user && path.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)

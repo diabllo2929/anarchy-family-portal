@@ -3,11 +3,8 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "1512911336982581338";
-const BOT_TOKEN =
-  process.env.DISCORD_BOT_TOKEN ||
-  "process.env.DISCORD_BOT_TOKEN";
+const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
 
-// Role IDs من سيرفر ANARCHY
 const DEV_ROLE_ID = "1573355148556763319";
 const GANG_ROLE_ID = "1543700433099563099";
 
@@ -20,6 +17,7 @@ export async function GET(request: Request) {
   }
 
   const cookieStore = await cookies();
+  const pendingCookies: { name: string; value: string; options: any }[] = [];
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,9 +28,19 @@ export async function GET(request: Request) {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            const persistentOpts = {
+              ...options,
+              maxAge: 60 * 60 * 24 * 365,
+              path: "/",
+              sameSite: "lax" as const,
+              secure: true,
+            };
+            pendingCookies.push({ name, value, options: persistentOpts });
+            try {
+              cookieStore.set(name, value, persistentOpts);
+            } catch {}
+          });
         },
       },
     }
@@ -49,7 +57,6 @@ export async function GET(request: Request) {
   const email = (user.email || "").toLowerCase();
   const meta = user.user_metadata || {};
 
-  // استخراج بيانات الديسكورد
   const discordIdentity = user.identities?.find((i) => i.provider === "discord");
   const discordId: string | null =
     discordIdentity?.id || meta.provider_id || meta.sub || null;
@@ -61,7 +68,6 @@ export async function GET(request: Request) {
     email.split("@")[0];
   const avatarUrl: string | null = meta.avatar_url || meta.picture || null;
 
-  // فحص رولات العضو داخل سيرفر ديسكورد العيلة عبر البوت
   let memberRoleIds: string[] = [];
   let serverNick: string | null = null;
 
@@ -88,60 +94,48 @@ export async function GET(request: Request) {
   const hasDevRole = memberRoleIds.includes(DEV_ROLE_ID);
   const hasGangRole = memberRoleIds.includes(GANG_ROLE_ID);
 
-  // تحديد الصلاحية والرتبة بناءً على رول الديسكورد
   let siteRole: "super_admin" | "admin" | "member" = "member";
-  let rankName = "Guest / Applicant";
+  let rankName = "زائر";
   let rankOrder = 99;
+  let rolesList = ["زائر"];
 
   if (hasDevRole) {
     siteRole = "super_admin";
     rankName = "Dev";
     rankOrder = 3;
+    rolesList = ["Dev"];
   } else if (hasGangRole) {
     siteRole = "member";
-    rankName = "Soldier";
-    rankOrder = 7;
-  } else {
-    siteRole = "member";
-    rankName = "Guest / Applicant";
-    rankOrder = 99;
+    rankName = "Gang";
+    rankOrder = 6;
+    rolesList = ["Gang"];
   }
 
-  // التحقق هل العضو مسجل مسبقاً في جدول members أم تسجيل جديد
   const { data: existingMember } = await supabase
     .from("members")
     .select("*")
-    .or(`user_id.eq.${user.id},email.eq.${email}`)
+    .or(
+      discordId
+        ? `user_id.eq.${user.id},discord_id.eq.${discordId},email.eq.${email}`
+        : `user_id.eq.${user.id},email.eq.${email}`
+    )
     .maybeSingle();
 
   const resolvedIcName =
-    existingMember?.ic_name || serverNick || discordUsername || email.split("@")[0];
+    serverNick || existingMember?.ic_name || discordUsername || email.split("@")[0];
 
   if (existingMember) {
-    // تحديث بياناته ورتبته تلقائياً لو رولاته في الديسكورد اتغيرت
-    const updatedRole = hasDevRole
-      ? "super_admin"
-      : existingMember.role === "admin" || existingMember.role === "super_admin"
-      ? existingMember.role
-      : "member";
-
-    const updatedRankName = hasDevRole
-      ? existingMember.rank_order < 3
-        ? existingMember.rank_name
-        : "Dev"
-      : hasGangRole
-      ? existingMember.rank_order >= 90
-        ? "Soldier"
-        : existingMember.rank_name
-      : existingMember.rank_name;
-
-    const updatedRankOrder = hasDevRole
-      ? Math.min(existingMember.rank_order, 3)
-      : hasGangRole
-      ? existingMember.rank_order >= 90
-        ? 7
-        : existingMember.rank_order
-      : existingMember.rank_order;
+    const existingRoles: string[] = Array.isArray(existingMember.roles_list)
+      ? existingMember.roles_list.filter((r: string) => r !== "زائر")
+      : [];
+    const mergedRoles = Array.from(
+      new Set([
+        ...(hasDevRole ? ["Dev"] : []),
+        ...(hasGangRole && !hasDevRole ? ["Gang"] : []),
+        ...existingRoles,
+      ])
+    );
+    const finalRoles = mergedRoles.length > 0 ? mergedRoles : rolesList;
 
     await supabase
       .from("members")
@@ -150,27 +144,32 @@ export async function GET(request: Request) {
         discord_id: discordId,
         discord_username: discordUsername,
         avatar_url: avatarUrl || existingMember.avatar_url,
-        role: updatedRole,
-        rank_name: updatedRankName,
-        rank_order: updatedRankOrder,
+        role: hasDevRole ? "super_admin" : existingMember.role || "member",
+        rank_name: hasDevRole ? "Dev" : hasGangRole ? "Gang" : existingMember.rank_name,
+        rank_order: hasDevRole ? 3 : hasGangRole ? 6 : existingMember.rank_order,
+        roles_list: finalRoles,
       })
       .eq("id", existingMember.id);
-  } else {
-    // إدراج العضو الجديد في جدول members
+  } else if (hasDevRole || hasGangRole) {
     await supabase.from("members").insert({
       user_id: user.id,
-      email,
+      email: discordId ? `${discordId}@anarchy.discord` : email,
       ic_name: resolvedIcName,
       discord_id: discordId,
       discord_username: discordUsername,
       avatar_url: avatarUrl,
       rank_name: rankName,
       rank_order: rankOrder,
+      roles_list: rolesList,
       role: siteRole,
       points: 0,
       tasks_completed_count: 0,
     });
   }
 
-  return NextResponse.redirect(`${origin}/`);
+  const response = NextResponse.redirect(`${origin}/`);
+  for (const c of pendingCookies) {
+    response.cookies.set(c.name, c.value, c.options);
+  }
+  return response;
 }

@@ -1623,6 +1623,9 @@ const TAB_ORDER: TabType[] = [
       if (dossierMember?.id === member.id) {
         setDossierMember({ ...dossierMember, points: newPts });
       }
+      if (currentMember?.id === member.id || (member.discord_id && currentMember?.discord_id === member.discord_id)) {
+        setCurrentMember((prev: Member | null) => (prev ? { ...prev, id: member.id, points: newPts } : prev));
+      }
 
       await sendDiscordEvent({
         title: delta > 0 ? "⬆️ إضافة نقاط لعضو" : "⬇️ خصم نقاط من عضو",
@@ -1727,45 +1730,105 @@ const BLACK_MARKET_ITEMS = [
     },
   ];
 
-  const handlePurchaseShopItem = async (item: (typeof BLACK_MARKET_ITEMS)[number]) => {
-    if (!currentMember) {
-      pushTacticalToast("يجب تسجيل الدخول بحساب عضو في العيلة أولاً.", "error");
-      return;
-    }
+const activeShopMember = useMemo(() => {
+    if (!currentMember) return null;
+    return (
+      members.find(
+        (m) =>
+          m.id === currentMember.id ||
+          (currentMember.discord_id && m.discord_id === currentMember.discord_id) ||
+          (currentMember.discord_username &&
+            m.discord_username &&
+            m.discord_username.toLowerCase() === currentMember.discord_username.toLowerCase()) ||
+          (currentMember.email &&
+            m.email &&
+            m.email.toLowerCase() === currentMember.email.toLowerCase())
+      ) || currentMember
+    );
+  }, [currentMember, members]);
 
-    const currentPoints = Number(currentMember.points || 0);
-    if (currentPoints < item.cost) {
-      pushTacticalToast(
-        `معكش نقط كفاية للشراء! رصيدك الحالي (${currentPoints}) نقطة والمطلوب (${item.cost}) نقطة.`,
-        "error",
-        "رصيد غير كافٍ"
-      );
-      return;
+  const activeShopWarns = useMemo(() => {
+    if (!activeShopMember) return [];
+    const matchingIds = new Set<string>([activeShopMember.id]);
+    if (currentMember?.id) matchingIds.add(currentMember.id);
+    for (const m of members) {
+      if (
+        (activeShopMember.discord_id && m.discord_id === activeShopMember.discord_id) ||
+        (activeShopMember.discord_username &&
+          m.discord_username &&
+          m.discord_username.toLowerCase() === activeShopMember.discord_username.toLowerCase())
+      ) {
+        matchingIds.add(m.id);
+      }
     }
-
-    const myActiveWarns = warns
-      .filter((w) => w.member_id === currentMember.id)
+    return warns
+      .filter((w) => matchingIds.has(w.member_id))
       .sort(
         (a, b) =>
           new Date(a.created_at || 0).getTime() -
           new Date(b.created_at || 0).getTime()
       );
+  }, [activeShopMember, currentMember, members, warns]);
 
-    if (item.id === "remove_warn" && myActiveWarns.length === 0) {
-      pushTacticalToast(
-        "معندكش أي Warn نشط حالياً عشان تشيله!",
-        "warn",
-        "لا توجد تحذيرات"
-      );
+  const handlePurchaseShopItem = async (item: (typeof BLACK_MARKET_ITEMS)[number]) => {
+    const targetShopUser = activeShopMember || currentMember;
+    if (!targetShopUser) {
+      pushTacticalToast("يجب تسجيل الدخول بحساب عضو في العيلة أولاً.", "error");
       return;
     }
 
     setBuyingShopItemId(item.id);
     try {
-      const dbMember = await ensureMemberInDb(currentMember);
+      const dbMember = await ensureMemberInDb(targetShopUser);
       if (!dbMember) return;
 
-      const updatedPoints = Number(dbMember.points || 0) - item.cost;
+      // جلب أحدث رصيد وأحدث تحذيرات مباشرة من قاعدة البيانات
+      const { data: freshMemberRow } = await supabase
+        .from("members")
+        .select("points")
+        .eq("id", dbMember.id)
+        .maybeSingle();
+
+      const livePoints = Number(freshMemberRow?.points ?? targetShopUser.points ?? dbMember.points ?? 0);
+
+      if (livePoints < item.cost) {
+        setMembers((prev: Member[]) =>
+          prev.map((m) => (m.id === dbMember.id ? { ...m, points: livePoints } : m))
+        );
+        setCurrentMember((prev: Member | null) =>
+          prev ? { ...prev, id: dbMember.id, points: livePoints } : prev
+        );
+        pushTacticalToast(
+          `معكش نقط كفاية للشراء! رصيدك الحالي (${livePoints}) نقطة والمطلوب (${item.cost}) نقطة.`,
+          "error",
+          "رصيد غير كافٍ"
+        );
+        return;
+      }
+
+      let dbActiveWarns = activeShopWarns;
+      if (item.id === "remove_warn") {
+        const { data: freshWarnsData } = await supabase
+          .from("member_warns")
+          .select("*")
+          .eq("member_id", dbMember.id)
+          .order("created_at", { ascending: true });
+
+        if (Array.isArray(freshWarnsData) && freshWarnsData.length > 0) {
+          dbActiveWarns = freshWarnsData;
+        }
+
+        if (dbActiveWarns.length === 0) {
+          pushTacticalToast(
+            "معندكش أي Warn نشط حالياً عشان تشيله!",
+            "warn",
+            "لا توجد تحذيرات"
+          );
+          return;
+        }
+      }
+
+      const updatedPoints = livePoints - item.cost;
       const { error: ptsErr } = await supabase
         .from("members")
         .update({ points: updatedPoints })
@@ -1776,15 +1839,29 @@ const BLACK_MARKET_ITEMS = [
         return;
       }
 
-      await applyLiveDiscordMembers(
-        members.map((m) =>
-          m.id === dbMember.id ? { ...m, points: updatedPoints } : m
-        )
+      const nextMembersList = members.map((m) =>
+        m.id === dbMember.id ||
+        (dbMember.discord_id && m.discord_id === dbMember.discord_id)
+          ? { ...m, id: dbMember.id, points: updatedPoints }
+          : m
       );
+      setMembers(nextMembersList);
+      setCurrentMember((prev: Member | null) =>
+        prev ? { ...prev, id: dbMember.id, points: updatedPoints } : { ...dbMember, points: updatedPoints }
+      );
+      await applyLiveDiscordMembers(nextMembersList);
 
       if (item.id === "remove_warn") {
-        const oldestWarn = myActiveWarns[0];
-        await supabase.from("member_warns").delete().eq("id", oldestWarn.id);
+        const oldestWarn = dbActiveWarns[0];
+        const { error: delWarnErr } = await supabase
+          .from("member_warns")
+          .delete()
+          .eq("id", oldestWarn.id);
+
+        if (delWarnErr) {
+          pushTacticalToast("تعذر إزالة الـ Warn: " + delWarnErr.message, "error");
+          return;
+        }
 
         const remainingAll = warns.filter((w) => w.id !== oldestWarn.id);
         const memberRemaining = remainingAll
@@ -4655,7 +4732,7 @@ const BLACK_MARKET_ITEMS = [
                         رصيدك الحالي
                       </span>
                       <span className="text-2xl sm:text-3xl font-black text-amber-400">
-                        {Number(currentMember?.points || 0)}{" "}
+                        {Number(activeShopMember?.points || 0)}{" "}
                         <span className="text-xs text-[#f5efe6]/70">نقطة</span>
                       </span>
                     </div>
@@ -4665,7 +4742,7 @@ const BLACK_MARKET_ITEMS = [
                         تحذيراتك
                       </span>
                       <span className="text-xl font-black text-white">
-                        {warns.filter((w) => w.member_id === currentMember?.id).length}{" "}
+                        {activeShopWarns.length}{" "}
                         <span className="text-xs text-zinc-400">Warn</span>
                       </span>
                     </div>
@@ -4674,11 +4751,9 @@ const BLACK_MARKET_ITEMS = [
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   {BLACK_MARKET_ITEMS.map((item) => {
-                    const userPts = Number(currentMember?.points || 0);
+                    const userPts = Number(activeShopMember?.points || 0);
                     const canAfford = userPts >= item.cost;
-                    const myWarnsCount = warns.filter(
-                      (w) => w.member_id === currentMember?.id
-                    ).length;
+                    const myWarnsCount = activeShopWarns.length;
                     const noWarnsToClear = item.id === "remove_warn" && myWarnsCount === 0;
                     const isBuying = buyingShopItemId === item.id;
 

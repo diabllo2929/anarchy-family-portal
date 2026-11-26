@@ -848,7 +848,7 @@ export default function AnarchyPortal() {
 
   const isFamilyMember =
     isAdmin ||
-    liveDiscordPerms.isGang ||
+    liveDiscordPerms.isGang || currentMemberRoles.some((r: string) => ["Boss", "Co-Boss", "Dev", "Leader", "Manager", "Gang", "Streamer"].includes(r)) ||
     (currentMember !== null &&
       Number(currentMember.rank_order) < 90 &&
       !(currentMemberRoles.length === 1 && currentMemberRoles[0] === "زائر"));
@@ -965,11 +965,19 @@ export default function AnarchyPortal() {
         ) || null;
       setCurrentMember(me);
 
+      const discordIdentity = Array.isArray(user.identities)
+        ? user.identities.find((idn: any) => idn.provider === "discord")
+        : null;
       const dId =
         me?.discord_id ||
+        discordIdentity?.id ||
+        discordIdentity?.identity_data?.provider_id ||
+        discordIdentity?.identity_data?.sub ||
         user.user_metadata?.provider_id ||
         user.user_metadata?.sub ||
         "";
+      let resolvedIsDev = false;
+      let resolvedIsGang = false;
       const dName =
         me?.discord_username ||
         user.user_metadata?.user_name ||
@@ -1001,7 +1009,7 @@ export default function AnarchyPortal() {
           });
           if (permRes.ok) {
             const perms = await permRes.json();
-            setLiveDiscordPerms({
+            resolvedIsDev = Boolean(perms.isDev); resolvedIsGang = Boolean(perms.isGang); setLiveDiscordPerms({
               isDev: Boolean(perms.isDev),
               isGang: Boolean(perms.isGang),
             });
@@ -1050,7 +1058,7 @@ export default function AnarchyPortal() {
           }
         } catch {}
       } else {
-        setLiveDiscordPerms({ isDev: false, isGang: false });
+        resolvedIsDev = Boolean(perms.isDev); resolvedIsGang = Boolean(perms.isGang); setLiveDiscordPerms({ isDev: false, isGang: false });
       }
       // auto-kick-unauthorized-tab
       const freshRoles = me
@@ -1061,13 +1069,13 @@ export default function AnarchyPortal() {
           : ["زائر"]
         : ["زائر"];
       const stillAdmin =
-        liveDiscordPerms.isDev ||
+        resolvedIsDev || liveDiscordPerms.isDev ||
         freshRoles.some((r: string) =>
           ["Boss", "Co-Boss", "Dev", "Leader", "Manager"].includes(r)
         );
       const stillFamily =
         stillAdmin ||
-        liveDiscordPerms.isGang ||
+        resolvedIsGang || liveDiscordPerms.isGang || currentMemberRoles.some((r: string) => ["Boss", "Co-Boss", "Dev", "Leader", "Manager", "Gang", "Streamer"].includes(r)) ||
         freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
       setActiveTab((prev) => {
         if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
@@ -2764,52 +2772,76 @@ export default function AnarchyPortal() {
                 <motion.div
                   initial={{ opacity: 0, y: -12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-6 max-w-3xl w-full rounded-2xl bg-black/80 backdrop-blur-xl border border-red-500/35 shadow-[0_10px_35px_rgba(220,38,38,0.18)] overflow-hidden flex items-center"
+                  className="mb-6 max-w-3xl w-full rounded-full bg-[#090405]/85 backdrop-blur-2xl border border-red-500/35 shadow-[0_10px_35px_rgba(220,38,38,0.22),inset_0_1px_0_rgba(255,255,255,0.08)] p-1.5 flex items-center gap-2 overflow-hidden"
                 >
                   <style>{`
-                    @keyframes anarchyNewsMarquee {
-                      0% { transform: translateX(-100%); }
-                      100% { transform: translateX(100%); }
+                    @keyframes anarchySeamlessMarquee {
+                      0% { transform: translate3d(0%, 0, 0); }
+                      100% { transform: translate3d(-50%, 0, 0); }
                     }
-                    .anarchy-ticker-track {
-                      display: inline-flex;
-                      align-items: center;
-                      white-space: nowrap;
-                      animation: anarchyNewsMarquee 22s linear infinite;
-                    }
-                    .anarchy-ticker-wrap:hover .anarchy-ticker-track {
-                      animation-play-state: paused;
+                    .anarchy-seamless-track {
+                      display: flex;
+                      width: max-content;
+                      will-change: transform;
+                      animation: anarchySeamlessMarquee 26s linear infinite;
                     }
                   `}</style>
 
-                  <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-l from-red-600/30 to-red-950/60 border-l border-red-500/35 shrink-0 z-10">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                  <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-l from-red-600 to-red-800 text-white shadow-[0_0_18px_rgba(220,38,38,0.55)] shrink-0 z-10">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-80" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
                     </span>
-                    <span className="text-[11px] font-black tracking-wider text-[#f5efe6]">
+                    <span className="text-[11px] font-black tracking-wide">
                       آخر الأخبار
                     </span>
                   </div>
 
-                  <div className="anarchy-ticker-wrap relative flex-1 overflow-hidden py-3 px-4">
-                    <div className="anarchy-ticker-track gap-8 text-xs font-bold text-[#f5efe6]">
-                      {(alertMessage || "مرحباً بكم في البوابة الرسمية لعيلة ANARCHY SYNDICATE")
-                        .split("|")
-                        .map((item, idx) => (
-                          <span key={idx} className="inline-flex items-center gap-3">
-                            <span>{item.trim()}</span>
-                            <span className="text-red-500 font-black">✦</span>
-                          </span>
-                        ))}
+                  <div
+                    dir="ltr"
+                    style={{
+                      maskImage:
+                        "linear-gradient(to right, transparent 0%, black 7%, black 93%, transparent 100%)",
+                      WebkitMaskImage:
+                        "linear-gradient(to right, transparent 0%, black 7%, black 93%, transparent 100%)",
+                    }}
+                    className="relative flex-1 overflow-hidden py-1"
+                  >
+                    <div className="anarchy-seamless-track">
+                      {[0, 1].map((loopIdx) => (
+                        <div
+                          key={loopIdx}
+                          dir="rtl"
+                          className="flex items-center shrink-0"
+                        >
+                          {Array.from({ length: 4 }).map((_, repIdx) =>
+                            (
+                              alertMessage ||
+                              "مرحباً بكم في البوابة الرسمية لعيلة ANARCHY SYNDICATE"
+                            )
+                              .split("|")
+                              .filter((s) => s.trim().length > 0)
+                              .map((item, idx) => (
+                                <span
+                                  key={`${loopIdx}-${repIdx}-${idx}`}
+                                  className="inline-flex items-center gap-3 px-4 text-xs font-bold text-[#f5efe6] whitespace-nowrap"
+                                >
+                                  <span>{item.trim()}</span>
+                                  <span className="text-red-500 text-[10px]">◆</span>
+                                </span>
+                              ))
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <div
                     dir="ltr"
-                    className="hidden sm:flex items-center px-3.5 py-3 border-r border-white/10 text-[9px] font-black tracking-[0.22em] text-red-300/80 uppercase shrink-0 bg-black/40"
+                    className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-[9px] font-black tracking-[0.22em] text-red-300/85 uppercase shrink-0"
                   >
-                    ANARCHY NEWS
+                    <Flame className="w-3 h-3 text-red-500" />
+                    <span>ANARCHY LIVE</span>
                   </div>
                 </motion.div>
 

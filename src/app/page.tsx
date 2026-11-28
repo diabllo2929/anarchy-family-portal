@@ -1130,11 +1130,18 @@ const TAB_ORDER: TabType[] = [
 
   const fetchAllData = useCallback(async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      let {
+        data: { session: activeSession },
+      } = await supabase.auth.getSession();
+
+      let user = activeSession?.user || null;
       if (!user) {
-        router.push("/login");
+        const { data: userRes } = await supabase.auth.getUser();
+        user = userRes?.user || null;
+      }
+
+      if (!user) {
+        router.replace("/login");
         return;
       }
 

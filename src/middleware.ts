@@ -6,6 +6,8 @@ export async function middleware(request: NextRequest) {
     request,
   })
 
+  const isHttps = request.nextUrl.protocol === 'https:'
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -19,23 +21,24 @@ export async function middleware(request: NextRequest) {
           supabaseResponse = NextResponse.next({
             request,
           })
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value, options }) => {
+            const isClearing = options?.maxAge === 0 || !value
             supabaseResponse.cookies.set(name, value, {
               ...options,
-              maxAge: 60 * 60 * 24 * 365,
+              maxAge: isClearing ? 0 : 60 * 60 * 24 * 365,
               path: '/',
               sameSite: 'lax',
-              secure: true,
+              secure: isHttps,
             })
-          )
+          })
         },
       },
     }
   )
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    data: { session },
+  } = await supabase.auth.getSession()
 
   const path = request.nextUrl.pathname
   if (path === '/' && request.nextUrl.searchParams.has('code')) {
@@ -43,8 +46,14 @@ export async function middleware(request: NextRequest) {
     url.pathname = '/auth/callback'
     return NextResponse.redirect(url)
   }
+
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith('sb-') && c.name.includes('-auth-token') && Boolean(c.value))
+
   if (
-    !user &&
+    !session &&
+    !hasAuthCookie &&
     !path.startsWith('/login') &&
     !path.startsWith('/auth') &&
     !path.startsWith('/api')
@@ -54,7 +63,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && path.startsWith('/login')) {
+  if (session && path.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)

@@ -18,11 +18,22 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+    let mounted = true;
+    const checkExistingSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted && session) {
+        router.replace("/");
+        return;
+      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (mounted && user) {
         router.replace("/");
       }
-    });
+    };
+    checkExistingSession();
+    return () => {
+      mounted = false;
+    };
   }, [supabase, router]);
 
   // المحاكاة الفيزيائية للدم، البرك المتراكمة، وجزيئات الرماد والجمر

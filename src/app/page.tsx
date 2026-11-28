@@ -736,6 +736,11 @@ export default function AnarchyPortal() {
   const [buyingShopItemId, setBuyingShopItemId] = useState<string | null>(null);
   const [shopCategoryFilter, setShopCategoryFilter] = useState<"all" | "weapons" | "passes" | "supplies">("all");
 const [confirmShopItemId, setConfirmShopItemId] = useState<string | null>(null);
+const [tickets, setTickets] = useState<any[]>([]);
+  const [ticketReplyDrafts, setTicketReplyDrafts] = useState<Record<string, string>>({});
+  const [ticketActionLoadingId, setTicketActionLoadingId] = useState<string | null>(null);
+  const [confirmCloseTicketId, setConfirmCloseTicketId] = useState<string | null>(null);
+  const [adminTicketFilter, setAdminTicketFilter] = useState<"all" | "open" | "accepted" | "rejected">("all");
   const [ticketCategory, setTicketCategory] = useState<string>("complaint_report");
   const [ticketPriority, setTicketPriority] = useState<"normal" | "urgent" | "critical">("normal");
   const [ticketSubject, setTicketSubject] = useState<string>("");
@@ -1066,6 +1071,10 @@ const TAB_ORDER: TabType[] = [
   const isOwnerEmail = ["ysaid558855@gmail.com", "ysaid20006000@gmail.com"].includes(
     currentUserEmail.toLowerCase()
   );
+  const isDevOnly =
+    liveDiscordPerms.isDev ||
+    currentMemberRoles.some((r: string) => String(r).toLowerCase() === "dev");
+
   const isAdmin =
     liveDiscordPerms.isDev ||
     currentMemberRoles.some((r: string) =>
@@ -1167,6 +1176,7 @@ const TAB_ORDER: TabType[] = [
         { data: photosData },
         { data: appsData },
         { data: vaultData },
+        ticketsRes,
       ] = await Promise.all([
         supabase.from("members").select("*").order("rank_order", { ascending: true }),
         supabase
@@ -1189,6 +1199,14 @@ const TAB_ORDER: TabType[] = [
         supabase.from("gallery_photos").select("*").order("created_at", { ascending: false }),
         supabase.from("applications").select("*").order("created_at", { ascending: false }),
         supabase.from("vault_items").select("*").order("updated_at", { ascending: false }),
+        supabase
+          .from("member_tickets")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .then(
+            (r) => r,
+            () => ({ data: [] })
+          ),
       ]);
 
       const allMembers = membersData || [];
@@ -1323,6 +1341,7 @@ const TAB_ORDER: TabType[] = [
       }
 
       setWarns(warnsData || []);
+      setTickets((ticketsRes as any)?.data || []);
 
       const sMap: Record<string, FamilySetting> = {};
       (settingsData || []).forEach((s) => {
@@ -1998,7 +2017,7 @@ const TICKET_CATEGORIES = [
     },
   ];
 
-  const handleSubmitTicket = async (e: React.FormEvent) => {
+const handleSubmitTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     const sender = activeShopMember || currentMember;
     if (!sender) {
@@ -2012,32 +2031,67 @@ const TICKET_CATEGORIES = [
 
     setSendingTicket(true);
     try {
-      const res = await fetch("/api/discord-ticket", {
+      const dbSender = (await ensureMemberInDb(sender)) || sender;
+      const catMeta =
+        TICKET_CATEGORIES.find((c) => c.id === ticketCategory) || TICKET_CATEGORIES[0];
+      const generatedCode = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+      const rankLabel =
+        getMemberRoles(dbSender).join(" + ") || dbSender.rank_name || "Gang";
+
+      const { data: insertedRow, error: dbErr } = await supabase
+        .from("member_tickets")
+        .insert({
+          ticket_code: generatedCode,
+          member_id: String(dbSender.id),
+          member_ic_name: dbSender.ic_name,
+          member_discord_id: dbSender.discord_id || null,
+          member_discord_username: dbSender.discord_username || null,
+          member_rank: rankLabel,
+          category: ticketCategory,
+          category_label: catMeta.label,
+          priority: ticketPriority,
+          subject: ticketSubject.trim() || null,
+          details: ticketDetails.trim(),
+          proof_url: ticketProofUrl.trim() || null,
+          status: "open",
+        })
+        .select("*")
+        .single();
+
+      if (dbErr) {
+        pushTacticalToast(
+          "تعذر حفظ التيكت في قاعدة البيانات (تأكد من تشغيل كود SQL): " + dbErr.message,
+          "error"
+        );
+        return;
+      }
+
+      if (insertedRow) {
+        setTickets((prev) => [insertedRow, ...prev]);
+      }
+
+      await fetch("/api/discord-ticket", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "created",
+          ticketCode: generatedCode,
           category: ticketCategory,
           priority: ticketPriority,
           subject: ticketSubject.trim(),
           details: ticketDetails.trim(),
           proofUrl: ticketProofUrl.trim(),
-          memberIcName: sender.ic_name,
-          memberDiscordId: sender.discord_id || "",
-          memberDiscordUsername: sender.discord_username || "",
-          memberRank: getMemberRoles(sender).join(" + ") || sender.rank_name || "Gang",
+          memberIcName: dbSender.ic_name,
+          memberDiscordId: dbSender.discord_id || "",
+          memberDiscordUsername: dbSender.discord_username || "",
+          memberRank: rankLabel,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        pushTacticalToast(data.error || "تعذر إرسال التيكت للديسكورد", "error");
-        return;
-      }
-
       setLastSubmittedTicket({
-        code: data.ticketCode,
-        categoryLabel: data.categoryLabel,
-        subject: ticketSubject.trim() || data.categoryLabel,
+        code: generatedCode,
+        categoryLabel: catMeta.label,
+        subject: ticketSubject.trim() || catMeta.label,
         time: new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
       });
       setTicketSubject("");
@@ -2046,7 +2100,7 @@ const TICKET_CATEGORIES = [
       setTicketPriority("normal");
 
       pushTacticalToast(
-        `تم إرسال التيكت (#${data.ticketCode}) بنجاح إلى روم الإدارة في الديسكورد!`,
+        `تم فتح التيكت (#${generatedCode}) وإرساله لروم التيكتات في الديسكورد!`,
         "success",
         "تم فتح التيكت ✓"
       );
@@ -2054,6 +2108,187 @@ const TICKET_CATEGORIES = [
       pushTacticalToast("حدث خطأ أثناء إرسال التيكت: " + (err?.message || "خطأ غير معروف"), "error");
     } finally {
       setSendingTicket(false);
+    }
+  };
+
+  const handleClaimTicket = async (ticket: any) => {
+    if (!isDevOnly) {
+      pushTacticalToast("استلام التيكتات متاح لأعضاء رول Dev فقط.", "error", "صلاحيات Dev فقط");
+      return;
+    }
+    const actor = activeShopMember || currentMember;
+    const devDisplayName = actor?.discord_username
+      ? `${actor.ic_name} (@${actor.discord_username})`
+      : actor?.ic_name || "Dev";
+
+    setTicketActionLoadingId(ticket.id);
+    try {
+      const { error } = await supabase
+        .from("member_tickets")
+        .update({
+          claimed_by: devDisplayName,
+          claimed_by_discord_id: actor?.discord_id || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ticket.id);
+
+      if (error) {
+        pushTacticalToast("تعذر استلام التيكت: " + error.message, "error");
+        return;
+      }
+
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticket.id
+            ? {
+                ...t,
+                claimed_by: devDisplayName,
+                claimed_by_discord_id: actor?.discord_id || null,
+              }
+            : t
+        )
+      );
+
+      await fetch("/api/discord-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "claimed",
+          ticketCode: ticket.ticket_code,
+          category: ticket.category,
+          memberIcName: ticket.member_ic_name,
+          memberDiscordId: ticket.member_discord_id || "",
+          actorName: devDisplayName,
+          actorDiscordId: actor?.discord_id || "",
+        }),
+      });
+
+      pushTacticalToast(
+        `تم استلام التيكت #${ticket.ticket_code} باسمك (${devDisplayName})`,
+        "success",
+        "تم استلام التيكت ✋"
+      );
+    } finally {
+      setTicketActionLoadingId(null);
+    }
+  };
+
+  const handleDecideTicket = async (ticket: any, decision: "accepted" | "rejected") => {
+    if (!isDevOnly) {
+      pushTacticalToast("قبول أو رفض التيكتات متاح لأعضاء رول Dev فقط.", "error", "صلاحيات Dev فقط");
+      return;
+    }
+    const actor = activeShopMember || currentMember;
+    const devDisplayName = actor?.discord_username
+      ? `${actor.ic_name} (@${actor.discord_username})`
+      : actor?.ic_name || "Dev";
+    const replyText = (ticketReplyDrafts[ticket.id] || "").trim();
+    const finalClaimedBy = ticket.claimed_by || devDisplayName;
+
+    setTicketActionLoadingId(ticket.id);
+    try {
+      const { error } = await supabase
+        .from("member_tickets")
+        .update({
+          status: decision,
+          claimed_by: finalClaimedBy,
+          claimed_by_discord_id: ticket.claimed_by_discord_id || actor?.discord_id || null,
+          decided_by: devDisplayName,
+          admin_reply: replyText || ticket.admin_reply || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ticket.id);
+
+      if (error) {
+        pushTacticalToast("تعذر تحديث حالة التيكت: " + error.message, "error");
+        return;
+      }
+
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticket.id
+            ? {
+                ...t,
+                status: decision,
+                claimed_by: finalClaimedBy,
+                decided_by: devDisplayName,
+                admin_reply: replyText || t.admin_reply || null,
+              }
+            : t
+        )
+      );
+
+      await fetch("/api/discord-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "decided",
+          ticketCode: ticket.ticket_code,
+          category: ticket.category,
+          subject: ticket.subject || "",
+          memberIcName: ticket.member_ic_name,
+          memberDiscordId: ticket.member_discord_id || "",
+          actorName: devDisplayName,
+          actorDiscordId: actor?.discord_id || "",
+          decision,
+          adminReply: replyText,
+        }),
+      });
+
+      pushTacticalToast(
+        decision === "accepted"
+          ? `تمت الموافقة على التيكت #${ticket.ticket_code} وإرسال إشعار للديسكورد`
+          : `تم رفض التيكت #${ticket.ticket_code} وإرسال إشعار للديسكورد`,
+        decision === "accepted" ? "success" : "warn",
+        decision === "accepted" ? "تم القبول ✓" : "تم الرفض ✕"
+      );
+    } finally {
+      setTicketActionLoadingId(null);
+    }
+  };
+
+  const handleCloseTicket = async (ticket: any) => {
+    const actor = activeShopMember || currentMember;
+    const closerName = actor?.discord_username
+      ? `${actor.ic_name} (@${actor.discord_username})`
+      : actor?.ic_name || ticket.member_ic_name;
+
+    setTicketActionLoadingId(ticket.id);
+    try {
+      const { error } = await supabase
+        .from("member_tickets")
+        .delete()
+        .eq("id", ticket.id);
+
+      if (error) {
+        pushTacticalToast("تعذر إغلاق وحذف التيكت: " + error.message, "error");
+        return;
+      }
+
+      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      setConfirmCloseTicketId(null);
+
+      await fetch("/api/discord-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "closed",
+          ticketCode: ticket.ticket_code,
+          category: ticket.category,
+          memberIcName: ticket.member_ic_name,
+          memberDiscordId: ticket.member_discord_id || "",
+          actorName: closerName,
+          actorDiscordId: actor?.discord_id || "",
+        }),
+      });
+
+      pushTacticalToast(
+        `تم إغلاق وحذف التيكت #${ticket.ticket_code} بنجاح بعد حل المشكلة.`,
+        "success",
+        "تم إغلاق التيكت 🔒"
+      );
+    } finally {
+      setTicketActionLoadingId(null);
     }
   };
 
@@ -5164,6 +5399,215 @@ const TICKET_CATEGORIES = [
                     </form>
                   </div>
                 </div>
+
+                {/* قائمة التيكتات المفتوحة والمتابعة */}
+                {(() => {
+                  const selfUser = activeShopMember || currentMember;
+                  const visibleTickets = isDevOnly
+                    ? tickets
+                    : tickets.filter(
+                        (t) =>
+                          (selfUser?.id && String(t.member_id) === String(selfUser.id)) ||
+                          (selfUser?.discord_id &&
+                            t.member_discord_id &&
+                            String(t.member_discord_id) === String(selfUser.discord_id))
+                      );
+
+                  return (
+                    <div className="anarchy-glass rounded-[32px] p-6 sm:p-8 border border-white/15 space-y-5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                        <div>
+                          <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">
+                            LIVE TICKET TRACKER
+                          </span>
+                          <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">
+                            {isDevOnly
+                              ? `جميع التيكتات الواردة (${visibleTickets.length})`
+                              : `تيكتاتي وحالة المراجعة (${visibleTickets.length})`}
+                          </h3>
+                        </div>
+                        {isDevOnly && (
+                          <span className="px-3 py-1.5 rounded-xl bg-sky-500/15 border border-sky-400/35 text-[11px] font-black text-sky-200 self-start sm:self-auto">
+                            صلاحية Dev مفعّلة للاستلام والرد
+                          </span>
+                        )}
+                      </div>
+
+                      {visibleTickets.length === 0 ? (
+                        <div className="py-10 text-center text-xs text-zinc-400">
+                          لا توجد تيكتات مفتوحة حالياً.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {visibleTickets.map((t) => {
+                            const isOwnerOfTicket =
+                              (selfUser?.id && String(t.member_id) === String(selfUser.id)) ||
+                              (selfUser?.discord_id &&
+                                t.member_discord_id &&
+                                String(t.member_discord_id) === String(selfUser.discord_id));
+                            const isBusy = ticketActionLoadingId === t.id;
+
+                            return (
+                              <div
+                                key={t.id}
+                                className="rounded-2xl bg-black/70 border border-white/12 p-5 flex flex-col justify-between gap-4"
+                              >
+                                <div className="space-y-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-red-500/15 border border-red-500/35 text-red-300">
+                                        #{t.ticket_code}
+                                      </span>
+                                      <span className="text-xs font-black text-white">
+                                        {t.category_label}
+                                      </span>
+                                    </div>
+
+                                    {t.status === "accepted" ? (
+                                      <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-black">
+                                        مقبولة ✓
+                                      </span>
+                                    ) : t.status === "rejected" ? (
+                                      <span className="px-2.5 py-1 rounded-full bg-red-500/20 border border-red-400/40 text-red-200 text-[11px] font-black">
+                                        مرفوضة ✕
+                                      </span>
+                                    ) : (
+                                      <span className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 text-[11px] font-black">
+                                        قيد المراجعة ⏳
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="text-xs text-zinc-400 flex flex-wrap items-center gap-2">
+                                    <span>
+                                      مقدم التيكت:{" "}
+                                      <strong className="text-white">{t.member_ic_name}</strong>
+                                    </span>
+                                    <span>•</span>
+                                    <span>
+                                      {t.created_at
+                                        ? new Date(t.created_at).toLocaleString("ar-EG", {
+                                            dateStyle: "short",
+                                            timeStyle: "short",
+                                          })
+                                        : ""}
+                                    </span>
+                                  </div>
+
+                                  {t.subject && (
+                                    <p className="text-sm font-black text-amber-200">
+                                      {t.subject}
+                                    </p>
+                                  )}
+
+                                  <p className="text-xs text-[#e6dccb]/85 leading-relaxed bg-white/[0.03] border border-white/10 rounded-xl p-3">
+                                    {t.details}
+                                  </p>
+
+                                  {t.proof_url && (
+                                    <a
+                                      href={t.proof_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-block text-[11px] font-black text-sky-400 hover:underline"
+                                    >
+                                      🔗 فتح الرابط / الدليل المرفق
+                                    </a>
+                                  )}
+
+                                  {/* حالة الاستلام */}
+                                  <div className="rounded-xl px-3.5 py-2.5 bg-white/[0.04] border border-white/10 flex items-center justify-between gap-2 text-xs">
+                                    {t.claimed_by ? (
+                                      <span className="text-sky-300 font-black">
+                                        ✋ تم استلام التيكت بواسطة: {t.claimed_by}
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-400 font-bold">
+                                        ⏳ في انتظار استلام أحد مطوري Dev
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* رد الإدارة والقرار */}
+                                  {(t.decided_by || t.admin_reply) && (
+                                    <div
+                                      className={`rounded-xl p-3 border text-xs space-y-1 ${
+                                        t.status === "accepted"
+                                          ? "bg-emerald-950/40 border-emerald-500/35 text-emerald-100"
+                                          : t.status === "rejected"
+                                          ? "bg-red-950/40 border-red-500/35 text-red-100"
+                                          : "bg-zinc-900/70 border-white/15 text-zinc-200"
+                                      }`}
+                                    >
+                                      {t.decided_by && (
+                                        <p className="font-black">
+                                          {t.status === "accepted"
+                                            ? `✅ تمت الموافقة بواسطة: ${t.decided_by}`
+                                            : `❌ تم الرفض بواسطة: ${t.decided_by}`}
+                                        </p>
+                                      )}
+                                      {t.admin_reply && (
+                                        <p className="opacity-90 leading-relaxed">
+                                          الرد: {t.admin_reply}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* أزرار التحكم (استلام للـ Dev / طلب إغلاق لصاحب التيكت) */}
+                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                                  {isDevOnly && !t.claimed_by && (
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={() => handleClaimTicket(t)}
+                                      className="px-4 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 text-xs font-black cursor-pointer transition-all disabled:opacity-50"
+                                    >
+                                      {isBusy ? "جاري الاستلام..." : "✋ استلام التيكت"}
+                                    </button>
+                                  )}
+
+                                  {(isOwnerOfTicket || isDevOnly) && (
+                                    <div className="mr-auto">
+                                      {confirmCloseTicketId === t.id ? (
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={() => handleCloseTicket(t)}
+                                            className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black cursor-pointer"
+                                          >
+                                            تأكيد الإغلاق والحذف
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmCloseTicketId(null)}
+                                            className="px-2.5 py-2 rounded-xl bg-white/10 text-zinc-300 text-xs font-black cursor-pointer"
+                                          >
+                                            تراجع
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmCloseTicketId(t.id)}
+                                          className="px-4 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-300 text-xs font-black cursor-pointer transition-all"
+                                        >
+                                          🔒 طلب إغلاق
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -5638,6 +6082,11 @@ const TICKET_CATEGORIES = [
                         id: "apps",
                         label: `طلبات التقديم (${pendingAppsCount})`,
                         icon: UserPlus,
+                      },
+                      {
+                        id: "tickets",
+                        label: `إدارة التيكتات (${tickets.filter((t) => t.status === "open").length})`,
+                        icon: Ticket,
                       },
                       { id: "armory", label: "حركات لوج السلاح والخزنة", icon: Crosshair },
                       { id: "vault", label: "إدارة مخزون الخزنة", icon: Vault },
@@ -6441,6 +6890,226 @@ const TICKET_CATEGORIES = [
                             );
                           })}
                         </div>
+                      </div>
+                    )}
+
+                    {adminSubTab === "tickets" && (
+                      <div className="anarchy-glass rounded-[30px] p-7 space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-black text-white flex items-center gap-2">
+                              <Ticket className="w-5 h-5 text-red-500" />
+                              <span>إدارة تيكتات العيلة ({tickets.length})</span>
+                            </h3>
+                            <p className="text-xs text-[#e6dccb]/80 mt-1">
+                              عرض كل تيكت بالشخص المستلم وحالته — الاستلام والقبول والرفض متاح لرتبة Dev فقط
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[
+                              { id: "all" as const, label: `الكل (${tickets.length})` },
+                              {
+                                id: "open" as const,
+                                label: `قيد المراجعة (${tickets.filter((t) => t.status === "open").length})`,
+                              },
+                              {
+                                id: "accepted" as const,
+                                label: `مقبولة (${tickets.filter((t) => t.status === "accepted").length})`,
+                              },
+                              {
+                                id: "rejected" as const,
+                                label: `مرفوضة (${tickets.filter((t) => t.status === "rejected").length})`,
+                              },
+                            ].map((f) => (
+                              <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => setAdminTicketFilter(f.id)}
+                                className={`px-3 py-1.5 rounded-xl text-[11px] font-black cursor-pointer transition-all ${
+                                  adminTicketFilter === f.id
+                                    ? "btn-cream-ivory"
+                                    : "bg-black/60 border border-white/12 text-zinc-300 hover:text-white"
+                                }`}
+                              >
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const filteredAdminTickets = tickets.filter((t) =>
+                            adminTicketFilter === "all" ? true : t.status === adminTicketFilter
+                          );
+
+                          if (filteredAdminTickets.length === 0) {
+                            return (
+                              <p className="text-xs text-zinc-300 py-10 text-center">
+                                لا توجد تيكتات في هذا التصنيف حالياً.
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-4">
+                              {filteredAdminTickets.map((t) => {
+                                const isBusy = ticketActionLoadingId === t.id;
+                                return (
+                                  <div
+                                    key={t.id}
+                                    className="rounded-2xl bg-black/75 border border-white/15 p-5 space-y-4"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-red-500/15 border border-red-500/35 text-red-300">
+                                            #{t.ticket_code}
+                                          </span>
+                                          <span className="text-sm font-black text-white">
+                                            {t.category_label}
+                                          </span>
+                                          <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-zinc-300">
+                                            {t.priority === "critical"
+                                              ? "🔴 طارئ جداً"
+                                              : t.priority === "urgent"
+                                              ? "🟠 عاجل"
+                                              : "🟢 عادي"}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 mt-1.5">
+                                          مقدم التيكت:{" "}
+                                          <strong className="text-white">{t.member_ic_name}</strong>
+                                          {t.member_discord_username
+                                            ? ` (@${t.member_discord_username})`
+                                            : ""}{" "}
+                                          • {t.member_rank || "Gang"}
+                                        </p>
+                                      </div>
+
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {t.claimed_by ? (
+                                          <span className="px-3 py-1 rounded-full bg-sky-500/15 border border-sky-400/40 text-sky-200 text-xs font-black">
+                                            ✋ مستلم بواسطة: {t.claimed_by}
+                                          </span>
+                                        ) : (
+                                          <span className="px-3 py-1 rounded-full bg-zinc-800 border border-white/15 text-zinc-300 text-xs font-black">
+                                            غير مستلم بعد
+                                          </span>
+                                        )}
+
+                                        {t.status === "accepted" ? (
+                                          <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-black">
+                                            مقبولة ✓
+                                          </span>
+                                        ) : t.status === "rejected" ? (
+                                          <span className="px-3 py-1 rounded-full bg-red-500/20 border border-red-400/40 text-red-200 text-xs font-black">
+                                            مرفوضة ✕
+                                          </span>
+                                        ) : (
+                                          <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 text-xs font-black">
+                                            قيد المراجعة ⏳
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {t.subject && (
+                                      <p className="text-sm font-black text-amber-200">
+                                        📌 {t.subject}
+                                      </p>
+                                    )}
+
+                                    <p className="text-xs text-[#f5efe6]/90 leading-relaxed bg-white/[0.03] border border-white/10 rounded-xl p-3.5">
+                                      {t.details}
+                                    </p>
+
+                                    {t.proof_url && (
+                                      <a
+                                        href={t.proof_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-block text-xs font-black text-sky-400 hover:underline"
+                                      >
+                                        🔗 فتح الدليل المرفق
+                                      </a>
+                                    )}
+
+                                    {t.decided_by && (
+                                      <p className="text-xs font-black text-zinc-300">
+                                        {t.status === "accepted"
+                                          ? `✅ تمت الموافقة بواسطة: ${t.decided_by}`
+                                          : `❌ تم الرفض بواسطة: ${t.decided_by}`}
+                                        {t.admin_reply ? ` — الرد: ${t.admin_reply}` : ""}
+                                      </p>
+                                    )}
+
+                                    {isDevOnly ? (
+                                      <div className="pt-3 border-t border-white/10 space-y-3">
+                                        <input
+                                          type="text"
+                                          value={ticketReplyDrafts[t.id] ?? t.admin_reply ?? ""}
+                                          onChange={(e) =>
+                                            setTicketReplyDrafts((prev) => ({
+                                              ...prev,
+                                              [t.id]: e.target.value,
+                                            }))
+                                          }
+                                          placeholder="اكتب ردك أو سبب القبول / الرفض (سيظهر للعضو وفي الديسكورد)..."
+                                          className="w-full rounded-xl bg-black border border-white/15 focus:border-red-500 px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none"
+                                        />
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          {!t.claimed_by && (
+                                            <button
+                                              type="button"
+                                              disabled={isBusy}
+                                              onClick={() => handleClaimTicket(t)}
+                                              className="px-4 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 text-xs font-black cursor-pointer"
+                                            >
+                                              ✋ استلام التيكت
+                                            </button>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={() => handleDecideTicket(t, "accepted")}
+                                            className="px-4 py-2 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
+                                          >
+                                            ✅ قبول التيكت
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={() => handleDecideTicket(t, "rejected")}
+                                            className="px-4 py-2 rounded-xl bg-red-600/85 hover:bg-red-500 text-white text-xs font-black cursor-pointer"
+                                          >
+                                            ❌ رفض التيكت
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={() => handleCloseTicket(t)}
+                                            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-zinc-200 text-xs font-black cursor-pointer mr-auto"
+                                          >
+                                            🔒 إغلاق وحذف
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="pt-2 border-t border-white/10 text-[11px] text-amber-300/80 font-bold">
+                                        🔒 استلام التيكت أو قبول/رفض الطلبات مقتصر على أعضاء رول Dev فقط.
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 

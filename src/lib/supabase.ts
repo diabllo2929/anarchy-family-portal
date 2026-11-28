@@ -9,6 +9,14 @@ export type WeaponLog = any;
 export type GalleryPhoto = any;
 export type Application = any;
 
+function safeDecode(val: string): string {
+  try {
+    return decodeURIComponent(val);
+  } catch {
+    return val;
+  }
+}
+
 function parseBrowserCookies(): { name: string; value: string }[] {
   if (typeof document === "undefined" || !document.cookie) return [];
   return document.cookie
@@ -17,8 +25,8 @@ function parseBrowserCookies(): { name: string; value: string }[] {
       const eqIdx = part.indexOf("=");
       if (eqIdx === -1) return { name: part.trim(), value: "" };
       return {
-        name: decodeURIComponent(part.slice(0, eqIdx).trim()),
-        value: decodeURIComponent(part.slice(eqIdx + 1)),
+        name: safeDecode(part.slice(0, eqIdx).trim()),
+        value: safeDecode(part.slice(eqIdx + 1)),
       };
     })
     .filter((c) => Boolean(c.name));
@@ -27,6 +35,7 @@ function parseBrowserCookies(): { name: string; value: string }[] {
 function restoreBackedUpAuthCookies() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   try {
+    if ((window as any).__anarchyExplicitSignOut) return;
     const current = parseBrowserCookies();
     const hasSbAuth = current.some(
       (c) => c.name.startsWith("sb-") && c.name.includes("-auth-token") && Boolean(c.value)
@@ -63,6 +72,9 @@ const createRawBrowserClient = () =>
         },
         setAll(cookiesToSet) {
           if (typeof document === "undefined") return;
+          const isExplicitLogout = Boolean(
+            typeof window !== "undefined" && (window as any).__anarchyExplicitSignOut
+          );
           const secureFlag =
             typeof window !== "undefined" && window.location.protocol === "https:"
               ? "; Secure"
@@ -70,6 +82,9 @@ const createRawBrowserClient = () =>
 
           cookiesToSet.forEach(({ name, value, options }) => {
             const isClearing = options?.maxAge === 0 || !value;
+            if (isClearing && !isExplicitLogout && name.startsWith("sb-")) {
+              return;
+            }
             const maxAge = isClearing ? 0 : 60 * 60 * 24 * 365;
             document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(
               value
@@ -77,6 +92,10 @@ const createRawBrowserClient = () =>
           });
 
           try {
+            if (isExplicitLogout) {
+              window.localStorage.removeItem("anarchy_sb_cookies_v1");
+              return;
+            }
             const latestCookies = parseBrowserCookies();
             const cleanBackup: Record<string, string> = {};
             for (const c of latestCookies) {
@@ -86,8 +105,6 @@ const createRawBrowserClient = () =>
             }
             if (Object.keys(cleanBackup).length > 0) {
               window.localStorage.setItem("anarchy_sb_cookies_v1", JSON.stringify(cleanBackup));
-            } else {
-              window.localStorage.removeItem("anarchy_sb_cookies_v1");
             }
           } catch {}
         },

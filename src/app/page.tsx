@@ -2917,6 +2917,12 @@ const TICKET_CATEGORIES = [
   };
 
   const handleLogout = async () => {
+    if (typeof window !== "undefined") {
+      (window as any).__anarchyExplicitSignOut = true;
+      try {
+        window.localStorage.removeItem("anarchy_sb_cookies_v1");
+      } catch {}
+    }
     await supabase.auth.signOut();
     router.push("/login");
   };

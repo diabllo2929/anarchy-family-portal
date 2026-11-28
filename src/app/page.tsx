@@ -63,6 +63,8 @@ import {
   Package,
   Lock,
   ShoppingBag,
+  Ticket,
+  Send,
 } from "lucide-react";
 import AnarchyAnimatedLogo from "../components/AnarchyAnimatedLogo";
 
@@ -84,6 +86,7 @@ type TabType =
   | "leaderboard"
   | "tasks"
   | "shop"
+  | "tickets"
   | "vault"
   | "weapons"
   | "admin";
@@ -95,6 +98,7 @@ type AdminSubTab =
   | "vault"
   | "tasks"
   | "shop"
+  | "tickets"
   | "announce"
   | "content";
 
@@ -731,7 +735,19 @@ export default function AnarchyPortal() {
   >([]);
   const [buyingShopItemId, setBuyingShopItemId] = useState<string | null>(null);
   const [shopCategoryFilter, setShopCategoryFilter] = useState<"all" | "weapons" | "passes" | "supplies">("all");
-  const [confirmShopItemId, setConfirmShopItemId] = useState<string | null>(null);
+const [confirmShopItemId, setConfirmShopItemId] = useState<string | null>(null);
+  const [ticketCategory, setTicketCategory] = useState<string>("complaint_report");
+  const [ticketPriority, setTicketPriority] = useState<"normal" | "urgent" | "critical">("normal");
+  const [ticketSubject, setTicketSubject] = useState<string>("");
+  const [ticketDetails, setTicketDetails] = useState<string>("");
+  const [ticketProofUrl, setTicketProofUrl] = useState<string>("");
+  const [sendingTicket, setSendingTicket] = useState<boolean>(false);
+  const [lastSubmittedTicket, setLastSubmittedTicket] = useState<{
+    code: string;
+    categoryLabel: string;
+    subject: string;
+    time: string;
+  } | null>(null);
 
   const playNotificationSound = useCallback((type: "success" | "error" | "warn" = "success") => {
     try {
@@ -993,6 +1009,7 @@ const TAB_ORDER: TabType[] = [
     "leaderboard",
     "tasks",
     "shop",
+    "tickets",
     "vault",
     "weapons",
     "admin",
@@ -1264,7 +1281,7 @@ const TAB_ORDER: TabType[] = [
             }
             setActiveTab((prev) => {
               if (["admin", "vault", "weapons"].includes(prev) && !perms.isDev) return "home";
-              if (["tasks", "shop"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
+              if (["tasks", "shop", "tickets"].includes(prev) && !perms.isDev && !perms.isGang) return "home";
               return prev;
             });
           }
@@ -1291,7 +1308,7 @@ const TAB_ORDER: TabType[] = [
         freshRoles.some((r: string) => ["Gang", "Streamer"].includes(r));
       setActiveTab((prev) => {
         if (["admin", "vault", "weapons"].includes(prev) && !stillAdmin) return "home";
-        if (["tasks", "shop"].includes(prev) && !stillFamily) return "home";
+        if (["tasks", "shop", "tickets"].includes(prev) && !stillFamily) return "home";
         return prev;
       });
       if (me?.discord_username && !appDiscord) {
@@ -1936,6 +1953,100 @@ const activeShopMember = useMemo(() => {
       }
     } finally {
       setBuyingShopItemId(null);
+    }
+  };
+
+const TICKET_CATEGORIES = [
+    {
+      id: "complaint_report",
+      label: "شكوى أو بلاغ داخلي",
+      tag: "INTERNAL REPORT",
+      desc: "الإبلاغ عن مخالفة، موقف، أو مشكلة داخل العيلة تحتاج تدخل القيادة",
+      placeholder: "اشرح تفاصيل الموقف أو الشكوى بوضوح مع ذكر الأسماء والتوقيت إن وجد...",
+      accent: "crimson",
+    },
+    {
+      id: "leave_excuse",
+      label: "طلب إجازة",
+      tag: "LEAVE REQUEST",
+      desc: "تقديم طلب إجازة أو عذر رسمي عن الغياب وعدم تسليم التاسك لفترة محددة",
+      placeholder: "اكتب مدة الإجازة المطلوبة (من يوم كذا ليوم كذا) وسبب الإجازة...",
+      accent: "cyan",
+    },
+    {
+      id: "tech_support",
+      label: "مشكلة تقنية في الموقع أو الديسكورد",
+      tag: "TECH & DISCORD",
+      desc: "مشكلة في النقاط، الرولات، البوابة، أو صلاحيات سيرفر الديسكورد",
+      placeholder: "اوصف المشكلة التقنية اللي واجهتك في الموقع أو الديسكورد بالتفصيل...",
+      accent: "purple",
+    },
+    {
+      id: "general_inquiry",
+      label: "استفسار أو اقتراح لتطوير الموقع",
+      tag: "SUGGESTION & INQUIRY",
+      desc: "سؤال للإدارة أو فكرة وميزة جديدة لتطوير الموقع والعيلة",
+      placeholder: "اكتب استفسارك أو اقتراحك لتطوير الموقع هنا...",
+      accent: "emerald",
+    },
+  ];
+
+  const handleSubmitTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const sender = activeShopMember || currentMember;
+    if (!sender) {
+      pushTacticalToast("يجب تسجيل الدخول بحساب عضو في العيلة أولاً.", "error");
+      return;
+    }
+    if (!ticketDetails.trim()) {
+      pushTacticalToast("اكتب تفاصيل التيكت واللي محتاجه أولاً.", "error", "بيانات ناقصة");
+      return;
+    }
+
+    setSendingTicket(true);
+    try {
+      const res = await fetch("/api/discord-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: ticketCategory,
+          priority: ticketPriority,
+          subject: ticketSubject.trim(),
+          details: ticketDetails.trim(),
+          proofUrl: ticketProofUrl.trim(),
+          memberIcName: sender.ic_name,
+          memberDiscordId: sender.discord_id || "",
+          memberDiscordUsername: sender.discord_username || "",
+          memberRank: getMemberRoles(sender).join(" + ") || sender.rank_name || "Gang",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        pushTacticalToast(data.error || "تعذر إرسال التيكت للديسكورد", "error");
+        return;
+      }
+
+      setLastSubmittedTicket({
+        code: data.ticketCode,
+        categoryLabel: data.categoryLabel,
+        subject: ticketSubject.trim() || data.categoryLabel,
+        time: new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
+      });
+      setTicketSubject("");
+      setTicketDetails("");
+      setTicketProofUrl("");
+      setTicketPriority("normal");
+
+      pushTacticalToast(
+        `تم إرسال التيكت (#${data.ticketCode}) بنجاح إلى روم الإدارة في الديسكورد!`,
+        "success",
+        "تم فتح التيكت ✓"
+      );
+    } catch (err: any) {
+      pushTacticalToast("حدث خطأ أثناء إرسال التيكت: " + (err?.message || "خطأ غير معروف"), "error");
+    } finally {
+      setSendingTicket(false);
     }
   };
 
@@ -2862,6 +2973,7 @@ const activeShopMember = useMemo(() => {
     { id: "leaderboard", label: "الليدربورد", icon: Trophy },
     { id: "tasks", label: "التاسك", icon: CheckSquare, familyOnly: true },
     { id: "shop", label: "المتجر", icon: ShoppingBag, familyOnly: true },
+    { id: "tickets", label: "التيكت", icon: Ticket, familyOnly: true },
     { id: "vault", label: "الخزنة", icon: Vault, adminOnly: true },
     { id: "weapons", label: "لوج السلاح", icon: Crosshair, adminOnly: true },
   ];
@@ -4810,6 +4922,234 @@ const activeShopMember = useMemo(() => {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================= */}
+            {/* 8A-2. قسم التيكتات (SYNDICATE TICKETS - للجانج والديف)         */}
+            {/* ============================================================= */}
+            {activeTab === "tickets" && (isFamilyMember || isAdmin) && (
+              <div className="space-y-6">
+                {/* الهيدر */}
+                <div className="anarchy-glass rounded-[34px] p-7 sm:p-9 relative overflow-hidden border border-white/15">
+                  <div className="pointer-events-none absolute -top-24 -left-24 w-72 h-72 rounded-full bg-red-600/20 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-24 -right-24 w-72 h-72 rounded-full bg-amber-500/10 blur-3xl" />
+
+                  <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                    <div>
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/35 mb-2.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-[10px] font-black text-red-300 tracking-[0.25em] uppercase">
+                          ANARCHY SUPPORT • DIRECT COMMAND CHANNEL
+                        </span>
+                      </div>
+                      <h2 className="text-2xl sm:text-4xl font-black text-white flex items-center gap-3">
+                        <Ticket className="w-8 h-8 text-red-400 shrink-0" />
+                        <span>مركز التيكتات والدعم</span>
+                      </h2>
+                      <p className="text-xs sm:text-sm text-[#e6dccb]/75 mt-1.5 max-w-2xl">
+                        اختر نوع التيكت واكتب طلبك أو مشكلتك بالتفصيل — هيوصل فوراً في رسالة منظمة باسمك ومنشنك في روم القيادة بالديسكورد
+                      </p>
+                    </div>
+
+                    <div className="px-4 py-3 rounded-2xl bg-black/75 border border-white/15 flex items-center gap-3 shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/35 flex items-center justify-center text-red-400">
+                        <IdCard className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-black text-zinc-400 uppercase">
+                          مقدم التيكت
+                        </span>
+                        <span className="text-sm font-black text-white">
+                          {(activeShopMember || currentMember)?.ic_name || "عضو العيلة"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* إشعار تأكيد آخر تيكت تم إرساله */}
+                {lastSubmittedTicket && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-3xl p-5 bg-emerald-950/50 border border-emerald-500/45 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-emerald-200">
+                          تم استلام التيكت بنجاح — رقم المرجع{" "}
+                          <span className="font-mono text-white bg-black/60 px-2 py-0.5 rounded-lg border border-emerald-400/30">
+                            #{lastSubmittedTicket.code}
+                          </span>
+                        </p>
+                        <p className="text-xs text-emerald-100/75 mt-0.5">
+                          القسم: {lastSubmittedTicket.categoryLabel} • تم الإرسال الساعة {lastSubmittedTicket.time}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLastSubmittedTicket(null)}
+                      className="px-4 py-2 rounded-xl bg-black/60 border border-white/15 text-xs font-black text-zinc-300 hover:text-white cursor-pointer self-end sm:self-auto"
+                    >
+                      إخفاء
+                    </button>
+                  </motion.div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* العمود الأيمن: اختيار نوع التيكت */}
+                  <div className="lg:col-span-5 space-y-3">
+                    <h3 className="text-xs font-black text-[#e6dccb]/80 uppercase tracking-wider px-1">
+                      1. اختر نوع التيكت
+                    </h3>
+                    {TICKET_CATEGORIES.map((cat) => {
+                      const selected = ticketCategory === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setTicketCategory(cat.id)}
+                          className={`w-full text-right p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden ${
+                            selected
+                              ? "bg-gradient-to-l from-red-950/70 via-[#19070a]/95 to-black/90 border-red-500 shadow-[0_10px_30px_rgba(220,38,38,0.22)]"
+                              : "anarchy-glass border-white/12 hover:border-white/30"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <span className="text-[9px] font-black tracking-[0.2em] text-red-400/90 uppercase block">
+                                {cat.tag}
+                              </span>
+                              <p className="text-sm sm:text-base font-black text-white mt-0.5">
+                                {cat.label}
+                              </p>
+                              <p className="text-xs text-[#e6dccb]/70 mt-1 leading-relaxed">
+                                {cat.desc}
+                              </p>
+                            </div>
+                            <div
+                              className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 mt-1 ${
+                                selected
+                                  ? "bg-red-500 border-red-400 text-white"
+                                  : "border-white/20 bg-black/50"
+                              }`}
+                            >
+                              {selected && <Check className="w-3.5 h-3.5" />}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* العمود الأيسر: نموذج كتابة التيكت */}
+                  <div className="lg:col-span-7">
+                    <form
+                      onSubmit={handleSubmitTicket}
+                      className="anarchy-glass rounded-[30px] p-6 sm:p-8 border border-white/15 space-y-5"
+                    >
+                      <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                        <div>
+                          <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider">
+                            2. تفاصيل الرسالة
+                          </span>
+                          <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">
+                            {TICKET_CATEGORIES.find((c) => c.id === ticketCategory)?.label}
+                          </h3>
+                        </div>
+                        <span className="px-3 py-1 rounded-full bg-white/5 border border-white/15 text-[10px] font-black text-zinc-300 font-mono">
+                          DISCORD DISPATCH
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-[#e6dccb] mb-2">
+                          درجة الأهمية
+                        </label>
+                        <div className="grid grid-cols-3 gap-2.5">
+                          {[
+                            { id: "normal" as const, label: "عادي", activeClass: "bg-emerald-500/20 border-emerald-400 text-emerald-200" },
+                            { id: "urgent" as const, label: "عاجل", activeClass: "bg-amber-500/20 border-amber-400 text-amber-200" },
+                            { id: "critical" as const, label: "طارئ جداً", activeClass: "bg-red-500/25 border-red-500 text-red-200" },
+                          ].map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setTicketPriority(p.id)}
+                              className={`py-2.5 px-3 rounded-xl border text-xs font-black transition-all cursor-pointer ${
+                                ticketPriority === p.id
+                                  ? p.activeClass
+                                  : "bg-black/60 border-white/12 text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-[#e6dccb] mb-2">
+                          عنوان الموضوع <span className="text-zinc-500">(اختياري)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={ticketSubject}
+                          onChange={(e) => setTicketSubject(e.target.value)}
+                          placeholder="مثال: طلب إجازة 3 أيام / اقتراح ميزة جديدة..."
+                          className="w-full rounded-2xl bg-black/75 border border-white/15 focus:border-red-500 px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-[#e6dccb] mb-2">
+                          اكتب كل اللي محتاجه بالتفصيل <span className="text-red-400">*</span>
+                        </label>
+                        <textarea
+                          rows={5}
+                          required
+                          value={ticketDetails}
+                          onChange={(e) => setTicketDetails(e.target.value)}
+                          placeholder={
+                            TICKET_CATEGORIES.find((c) => c.id === ticketCategory)?.placeholder
+                          }
+                          className="w-full rounded-2xl bg-black/75 border border-white/15 focus:border-red-500 px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors resize-none leading-relaxed"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-[#e6dccb] mb-2">
+                          رابط صورة أو فيديو دليل <span className="text-zinc-500">(اختياري)</span>
+                        </label>
+                        <input
+                          type="url"
+                          value={ticketProofUrl}
+                          onChange={(e) => setTicketProofUrl(e.target.value)}
+                          placeholder="https://..."
+                          className="w-full rounded-2xl bg-black/75 border border-white/15 focus:border-red-500 px-4 py-3 text-xs text-white placeholder:text-zinc-500 outline-none transition-colors"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={sendingTicket}
+                        className="w-full py-3.5 rounded-2xl btn-cream-crimson text-sm font-black flex items-center justify-center gap-2.5 shadow-[0_12px_32px_rgba(220,38,38,0.35)] hover:scale-[1.01] transition-all cursor-pointer disabled:opacity-60"
+                      >
+                        {sendingTicket ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                        <span>{sendingTicket ? "جاري إرسال التيكت..." : "إرسال التيكت الآن للديسكورد"}</span>
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
             )}
